@@ -33,6 +33,12 @@ final class WorkDeviceViewModel {
     private let fileStore: RecordingFileStore
     private let logger = Logger(subsystem: "de.gcng.sprechly.work", category: "WorkDeviceVM")
 
+    /// Für den automatischen Import nach einer Aufnahme. Wird beim App-Start
+    /// gesetzt; ohne ihn bleibt der Import manuell.
+    var modelContainer: ModelContainer?
+    /// Ob eine am Gerät beendete Aufnahme von selbst in die Bibliothek wandert.
+    var importsAutomatically = true
+
     private var client: D3200Client?
     private var eventTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
@@ -136,6 +142,7 @@ final class WorkDeviceViewModel {
             )
             // Die Aufnahme steht jetzt in der Liste.
             await reloadList()
+            if let fileID { await autoImport(fileID: fileID) }
 
         default:
             logger.info("Unbekannter Aufnahmestatus \(status.rawValue)")
@@ -257,6 +264,34 @@ final class WorkDeviceViewModel {
             logger.error("Liste laden fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Automatischer Import
+
+    /// Holt die gerade beendete Aufnahme von selbst in die Bibliothek.
+    ///
+    /// Das Gerät nennt im Stop-Ereignis die `file_id`; genau diese wird
+    /// importiert – nicht einfach die neueste, damit nichts Falsches landet,
+    /// wenn die Liste noch nicht aktuell ist.
+    private func autoImport(fileID: UInt32) async {
+        guard importsAutomatically, let modelContainer else { return }
+        guard let item = Self.autoImportCandidate(fileID: fileID, in: items) else { return }
+
+        logger.info("importiere \(String(format: "%08x", fileID), privacy: .public) automatisch")
+        await importRecording(item, context: modelContainer.mainContext)
+    }
+
+    /// Welche Aufnahme nach einem Stop automatisch importiert wird.
+    ///
+    /// Genau die `file_id` aus dem Stop-Ereignis, und nur, wenn sie noch nicht
+    /// in der Bibliothek liegt. Bewusst nicht „die neueste": Wenn die Liste
+    /// noch nicht aktuell ist, landete sonst die falsche Aufnahme.
+    static func autoImportCandidate(
+        fileID: UInt32,
+        in items: [WorkRecordingItem]
+    ) -> WorkRecordingItem? {
+        guard let item = items.first(where: { $0.id == fileID }) else { return nil }
+        return item.importState == .notImported ? item : nil
     }
 
     // MARK: - Import

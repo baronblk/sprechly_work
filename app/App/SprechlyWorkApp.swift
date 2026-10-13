@@ -29,6 +29,9 @@ struct SprechlyWorkApp: App {
                 .tint(Theme.Colors.accent)
                 .preferredColorScheme(.dark)
                 .task {
+                    // Ohne den Container kann eine fertige Geräte-Aufnahme
+                    // nicht von selbst in die Bibliothek wandern.
+                    appState.workDevice.modelContainer = modelContainer
                     guard !isRunningTests else { return }
                     appState.syncMonitor.start()
                     await appState.store.start()

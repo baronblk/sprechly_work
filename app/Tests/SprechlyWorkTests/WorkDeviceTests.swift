@@ -157,6 +157,48 @@ struct WorkDeviceTests {
         #expect(info.caseMACAddress == nil)
     }
 
+    /// Nach einem Stop meldet das Gerät die `file_id`. Genau die wird geholt –
+    /// nicht „die neueste", sonst landete bei einer veralteten Liste die
+    /// falsche Aufnahme in der Bibliothek.
+    @Test("Automatisch importiert wird genau die gemeldete Aufnahme")
+    @MainActor
+    func autoImportPicksTheReportedRecording() {
+        let liste = [
+            item(fileID: 0x6ACE_B548),
+            item(fileID: 0x6ACE_B43C),
+            item(fileID: 0x6ACE_B3DC),
+        ]
+        let gewählt = WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_B43C, in: liste)
+        #expect(gewählt?.id == 0x6ACE_B43C)
+    }
+
+    @Test("Unbekannte oder bereits importierte Aufnahmen werden übergangen")
+    @MainActor
+    func autoImportSkipsKnownAndMissing() {
+        let liste = [
+            item(fileID: 0x6ACE_B548, state: .imported(recordingID: UUID())),
+            item(fileID: 0x6ACE_B43C, state: .downloading(progress: 0.5)),
+            item(fileID: 0x6ACE_B3DC, state: .failed("kaputt")),
+        ]
+        // schon in der Bibliothek
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_B548, in: liste) == nil)
+        // läuft gerade
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_B43C, in: liste) == nil)
+        // zuvor gescheitert – bleibt dem Nutzer überlassen
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_B3DC, in: liste) == nil)
+        // gar nicht in der Liste
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0xDEAD_BEEF, in: liste) == nil)
+    }
+
+    @Test("Automatischer Import ist voreingestellt an")
+    @MainActor
+    func autoImportIsOnByDefault() {
+        let viewModel = WorkDeviceViewModel()
+        #expect(viewModel.importsAutomatically)
+        // Ohne Container passiert nichts – kein Absturz.
+        #expect(viewModel.modelContainer == nil)
+    }
+
     @Test("Frisches ViewModel hat noch keinen Gerätezustand")
     @MainActor
     func deviceInfoStartsEmpty() {

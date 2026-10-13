@@ -327,6 +327,14 @@ public actor D3200Client {
             await withCheckedContinuation { commandQueue.append($0) }
         }
         isRunningCommand = true
+        // Was jetzt noch in der Warteschlange liegt, gehört zu einer bereits
+        // beendeten Folge – meist die verspätete Antwort auf einen Befehl, der
+        // in den Timeout lief. Behielte man sie, läse der nächste Befehl sie
+        // als seine eigene Antwort, und der Versatz pflanzte sich fort.
+        if !pending.isEmpty {
+            logger.warning("\(self.pending.count) Frame(s) aus einer früheren Folge verworfen")
+            pending.removeAll()
+        }
         defer {
             isRunningCommand = false
             if !commandQueue.isEmpty { commandQueue.removeFirst().resume() }
@@ -397,11 +405,19 @@ public actor D3200Client {
     private func nextMessage(
         expecting types: Set<D3200Message>
     ) async throws -> RCSPFrame.Response {
-        let response = try await nextMessage()
-        guard let message = response.message, types.contains(message) else {
-            throw ClientError.unexpectedMessage(group: response.group, type: response.type)
+        // Eine unerwartete Nachricht ist ein Nachzügler, keine Antwort auf
+        // diesen Befehl. Sie zu verwerfen und weiterzuwarten ist richtiger,
+        // als die Folge daran scheitern zu lassen; der Timeout begrenzt das.
+        while true {
+            let response = try await nextMessage()
+            guard let message = response.message, types.contains(message) else {
+                logger.warning("""
+                Nachricht außer der Reihe verworfen                 (Gruppe 0x\(String(response.group, radix: 16)),                 Typ 0x\(String(response.type, radix: 16)))
+                """)
+                continue
+            }
+            return response
         }
-        return response
     }
 
     private func rawFrame() async throws -> Data {

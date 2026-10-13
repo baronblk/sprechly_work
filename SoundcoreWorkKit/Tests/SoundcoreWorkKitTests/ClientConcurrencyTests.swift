@@ -200,3 +200,100 @@ struct ClientEventTests {
         await client.disconnect()
     }
 }
+
+/// Der Fehler im Feld: Nach einem Timeout lag die verspätete Antwort in der
+/// Warteschlange, und jeder folgende Befehl las sie als seine eigene. In der
+/// App zeigte sich das als „Unerwartete Nachricht (Gruppe 0x2e, Typ 0x1)".
+@Suite("Client: Versatz nach Nachzüglern")
+struct ClientStaleFrameTests {
+    private final class ReplayTransport: DeviceTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sinks: [UUID: AsyncStream<Data>.Continuation] = [:]
+        /// Frames, die vor der Antwort eingeschoben werden.
+        var prefixFrames: [Data] = []
+
+        func connect() async throws {}
+        func disconnect() async {
+            let sinks = lock.withLock { Array(self.sinks.values) }
+            for sink in sinks { sink.finish() }
+        }
+
+        func notifications() -> AsyncStream<Data> {
+            let id = UUID()
+            return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+                lock.withLock { sinks[id] = continuation }
+                continuation.onTermination = { [weak self] _ in
+                    self?.lock.withLock { self?.sinks[id] = nil }
+                }
+            }
+        }
+
+        func send(_ frame: Data) async throws {
+            guard frame.count > 6 else { return }
+            let group = frame[5], type = frame[6]
+            let extras = lock.withLock {
+                let pending = prefixFrames
+                prefixFrames = []
+                return pending
+            }
+            Task {
+                try? await Task.sleep(for: .milliseconds(10))
+                for extra in extras { self.emit(extra) }
+                self.emit(ScriptedTransportReply.reply(group: group, type: type))
+            }
+        }
+
+        func push(_ frame: Data) {
+            emit(frame)
+        }
+
+        private func emit(_ frame: Data) {
+            let sinks = lock.withLock { Array(self.sinks.values) }
+            for sink in sinks { sink.yield(frame) }
+        }
+    }
+
+    @Test("Eine fremde Antwort vor der eigenen entgleist den Befehl nicht")
+    func straggingReplyIsSkipped() async throws {
+        let transport = ReplayTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+
+        // Vor der Geräte-Info trifft die verspätete ECDH-Antwort ein – genau
+        // der Fall aus dem Screenshot.
+        transport.prefixFrames = [Data(hex: "09ff0000012e016b00")! + Data(repeating: 0x11, count: 98)]
+
+        let info = try await client.fetchDeviceInfo()
+        #expect(info.firmwareVersion == "03.36")
+        await client.disconnect()
+    }
+
+    @Test("Ein Frame aus einer früheren Folge verschiebt die nächste nicht")
+    func pendingFrameDoesNotShiftTheNextCommand() async throws {
+        let transport = ReplayTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+
+        // Nachzügler ohne laufenden Befehl – landet in der Warteschlange.
+        transport.push(Data(hex: "09ff0000012e016b00")! + Data(repeating: 0x22, count: 98))
+        try await Task.sleep(for: .milliseconds(30))
+
+        // Der nächste Befehl muss trotzdem seine eigene Antwort bekommen.
+        let info = try await client.fetchDeviceInfo()
+        #expect(info.serialNumber == "32007ce9131d272b")
+        await client.disconnect()
+    }
+}
+
+/// Antworten für die Test-Transporte.
+enum ScriptedTransportReply {
+    static func reply(group: UInt8, type: UInt8) -> Data {
+        switch (group, type) {
+        case (0x01, 0x01): DeviceInfoTests.deviceInfoFrame
+        case (0x01, 0xA6): Data(hex: "09ff00000101a60a00ba")!
+        case (0x0B, 0x03): Data(hex: "09ff0000010b030a0021")!
+        case (0x1A, 0x0E): FrameTests.liveListTwoEntries
+        default: Data([0x09, 0xFF, 0x00, 0x00, 0x01, group, type, 0x0A, 0x00, 0x00])
+        }
+    }
+}
