@@ -30,7 +30,7 @@ ffprobe codec=opus  48000 Hz  stereo  0,9 s
 | `D3200Client`-Sequenz (§3) | ✅ am Gerät, voller Download |
 | Live-Ereignisse Start/Ende (§9) | ✅ am Gerät, 3 Zyklen reproduziert |
 | Fernsteuerung Start/Pause (§7a) | ✅ am Gerät gesendet und quittiert |
-| Akkustand / Gerätestatus | ❌ Gerät pusht ihn nicht, Abfrage-Command ungetestet |
+| Akku, Speicher, Firmware (§7b) | ✅ am Gerät abgefragt und dekodiert |
 | Schrittweite der Listen-Einträge | ⚠️ offen – siehe unten |
 
 ```bash
@@ -134,6 +134,10 @@ durch Durchprobieren unbekannter Command-Bytes klären.
 
 **Stop per Befehl.** Im Community-Katalog gibt es keinen Stop-Command. Ob das
 Gerät einen kennt, ist offen.
+
+**Akkustufen außer 9.** Das Testgerät war voll geladen, daher ist nur der
+Rohwert 9 beobachtet. Die Umrechnung `(raw + 1) * 10` stammt aus dem
+Community-Repo und ist für die übrigen Stufen nicht gegengeprüft.
 
 **Der Code des `1a/06`-Pushes.** Immer `2`, auch während der Aufnahme. Er ist
 **nicht** der Aufnahmestatus – wer ihn so liest, zeigt beim Start „Pause" an.

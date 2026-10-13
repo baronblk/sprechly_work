@@ -15,6 +15,7 @@ struct WorkDeviceView: View {
                 connectionCard
                 if viewModel.isReady {
                     liveCard
+                    deviceCard
                     recordingsSection
                 }
             }
@@ -190,6 +191,94 @@ struct WorkDeviceView: View {
         case .finished:
             "Die Aufnahme steht jetzt in der Liste unten."
         }
+    }
+
+    // MARK: - Gerätezustand
+
+    /// Akku, Speicher und Firmware – das, was die Hersteller-App auch zeigt.
+    @ViewBuilder private var deviceCard: some View {
+        if let info = viewModel.deviceInfo {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("Gerät")
+                        .font(Theme.Font.cardTitle)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Spacer()
+                    batteryBadge(percent: info.battery.percent, isCharging: info.isCharging)
+                }
+
+                storageBar(info: info)
+
+                detailRow("Speicher", value: storageText(info))
+                detailRow("Firmware", value: info.firmwareVersion)
+                detailRow("Seriennummer", value: info.serialNumber)
+                detailRow(
+                    "Ladecase",
+                    value: "\(info.caseBattery.percent) %"
+                        + (info.caseIsCharging ? " · lädt" : "")
+                        + (info.caseFirmwareVersion.isEmpty ? "" : " · \(info.caseFirmwareVersion)")
+                )
+                if let mac = info.caseMACAddress {
+                    detailRow("Case-MAC", value: mac)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Spacing.md)
+            .background(Theme.Colors.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.lg))
+        }
+    }
+
+    private func batteryBadge(percent: Int, isCharging: Bool) -> some View {
+        HStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: isCharging ? "battery.100.bolt" : batterySymbol(percent))
+                .foregroundStyle(percent <= 20 ? Theme.Colors.destructive : Theme.Colors.success)
+            Text("\(percent) %")
+                .font(Theme.Font.rowTitle)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(isCharging ? "Akku \(percent) Prozent, lädt" : "Akku \(percent) Prozent"))
+    }
+
+    private func batterySymbol(_ percent: Int) -> String {
+        switch percent {
+        case ..<13: "battery.0percent"
+        case ..<38: "battery.25percent"
+        case ..<63: "battery.50percent"
+        case ..<88: "battery.75percent"
+        default: "battery.100percent"
+        }
+    }
+
+    @ViewBuilder private func storageBar(info: D3200DeviceInfo) -> some View {
+        let fraction = info.totalStorageKB > 0
+            ? Double(info.usedStorageKB) / Double(info.totalStorageKB)
+            : 0
+        ProgressView(value: min(max(fraction, 0), 1))
+            .tint(Theme.Colors.accent)
+            .accessibilityLabel(Text("Speicher belegt"))
+            .accessibilityValue(Text(storageText(info)))
+    }
+
+    private func storageText(_ info: D3200DeviceInfo) -> String {
+        let used = ByteCountFormatter.string(fromByteCount: info.usedStorageBytes, countStyle: .file)
+        let total = ByteCountFormatter.string(fromByteCount: info.totalStorageBytes, countStyle: .file)
+        return "\(used) von \(total) belegt"
+    }
+
+    private func detailRow(_ label: LocalizedStringKey, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.footnote)
+                .foregroundStyle(Theme.Colors.textSecondary)
+            Spacer()
+            Text(value)
+                .font(.footnote)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Aufnahmen

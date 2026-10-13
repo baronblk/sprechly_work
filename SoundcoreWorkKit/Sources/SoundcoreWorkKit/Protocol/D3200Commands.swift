@@ -44,6 +44,23 @@ public enum D3200Commands {
         return RCSPFrame.command(payload: payload)
     }
 
+    /// Fragt eine Nachricht ohne Nutzdaten ab (Gruppe/Typ aus `message`).
+    ///
+    /// Alle Abfragen der Geräte-Info-Familie haben dasselbe Format:
+    /// `08 ee 00 00 | 00 <gruppe> <typ> 0a 00 | xor`, 10 Byte.
+    public static func query(_ message: D3200Message) -> Data {
+        RCSPFrame.command(payload: Data([0x00, message.group, message.type, 0x0A, 0x00]))
+    }
+
+    /// Volle Geräte-Info: Firmware, Seriennummer, Speicher, Ladecase (§7b).
+    public static func deviceInfo() -> Data { query(.deviceInfo) }
+
+    /// Akkustände von Gerät und Ladecase (§7b).
+    public static func battery() -> Data { query(.battery) }
+
+    /// Ladezustand von Gerät und Ladecase (§7b).
+    public static func charging() -> Data { query(.charging) }
+
     /// Fernsteuerung der Aufnahme am Gerät.
     ///
     /// Gruppe `0x18`, Typ `0x82` mit einem Nutzbyte – aus dem Community-Repo

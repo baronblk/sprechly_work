@@ -60,8 +60,8 @@ public enum RCSPFrame {
         /// Integritätsprüfung, die Responses mangels Checksum nicht haben.
         public var hasConsistentLength: Bool { Int(declaredLength) == frame.count }
 
-        /// Erkannter Nachrichtentyp, falls bekannt.
-        public var message: D3200Message? { D3200Message(rawValue: type) }
+        /// Erkannte Nachricht, falls Gruppe und Typ bekannt sind.
+        public var message: D3200Message? { D3200Message(group: group, type: type) }
 
         /// Nutzdaten ab dem typspezifischen Offset.
         public func data(from offset: Int) -> Data {
@@ -71,48 +71,80 @@ public enum RCSPFrame {
     }
 }
 
-/// Nachrichtentypen des Geräts (Offset 6 einer Response) – am Gerät verifiziert.
-public enum D3200Message: UInt8, Sendable, CaseIterable {
-    /// Antwort auf den ECDH-Handshake; enthält den Geräte-Public-Key.
-    case keyExchange = 0x01
-    /// Auth bestätigt.
-    case auth = 0x03
-    /// Unaufgeforderter Status-Push der Aufnahme (Gruppe 0x1a): trägt die
-    /// `file_id` und einen Statuscode. Am Gerät beim **Start** einer Aufnahme
-    /// beobachtet. Die Spec nannte ihn „Metadaten-Push (überspringen)".
-    case recordingState = 0x06
-    /// File-Detail-Antwort, enthält den File-Header (§5).
-    case fileDetail = 0x07
-    /// Audio-Daten-Chunk.
-    case audioChunk = 0x08
-    /// Transfer abgeschlossen.
-    case transferComplete = 0x0A
-    /// Dateilisten-Antwort; Länge wächst mit der Anzahl Einträge.
-    case fileList = 0x0E
-    /// Record-Control (Gruppe 0x18): in beide Richtungen.
-    ///
-    /// Als Command steuert sie die Aufnahme fern, als Nachricht meldet das
-    /// Gerät seinen Aufnahmestatus auf Offset 9. Am Gerät verifiziert:
-    /// Start → `01`, Pause → `02`, Ende an der Hardwaretaste → `00` plus
-    /// Dauer und `file_id`.
-    ///
-    /// Die Spec führte dies als „`18 82` Transfer-Init" – eine Fehldeutung:
-    /// `0x18` ist die Gruppe, `0x82` der Typ.
-    case recordControl = 0x82
-    /// Time-Sync bestätigt.
-    case timeSync = 0xA6
-}
+/// Nachrichten des Geräts, identifiziert über **Gruppe und Typ**.
+///
+/// Der Typ allein reicht nicht: `0x01` bedeutet in Gruppe `0x2e` die
+/// ECDH-Antwort und in Gruppe `0x01` die Geräte-Info.
+public enum D3200Message: Sendable, Hashable, CaseIterable {
+    // Gruppe 0x01 – Geräte-Info-Familie
+    case deviceInfo
+    case battery
+    case charging
+    case timeSync
 
-public extension D3200Message {
+    // Gruppe 0x0b
+    case auth
+
+    // Gruppe 0x18
+    /// Record-Control, in beide Richtungen: als Command Fernsteuerung, als
+    /// Nachricht der Aufnahmestatus auf Offset 9.
+    case recordControl
+
+    // Gruppe 0x1a
+    /// Kündigt eine neu angelegte Aufnahme an – **nicht** der Status.
+    case recordingState
+    case fileDetail
+    case audioChunk
+    case transferComplete
+    case fileList
+
+    // Gruppe 0x2e
+    case keyExchange
+
+    /// Befehlsgruppe (Offset 5 einer Response, `command[1]`).
+    public var group: UInt8 {
+        switch self {
+        case .deviceInfo, .battery, .charging, .timeSync: 0x01
+        case .auth: 0x0B
+        case .recordControl: 0x18
+        case .recordingState, .fileDetail, .audioChunk, .transferComplete, .fileList: 0x1A
+        case .keyExchange: 0x2E
+        }
+    }
+
+    /// Nachrichtentyp (Offset 6 einer Response, `command[2]`).
+    public var type: UInt8 {
+        switch self {
+        case .deviceInfo: 0x01
+        case .battery: 0x03
+        case .charging: 0x04
+        case .timeSync: 0xA6
+        case .auth: 0x03
+        case .recordControl: 0x82
+        case .recordingState: 0x06
+        case .fileDetail: 0x07
+        case .audioChunk: 0x08
+        case .transferComplete: 0x0A
+        case .fileList: 0x0E
+        case .keyExchange: 0x01
+        }
+    }
+
+    public init?(group: UInt8, type: UInt8) {
+        guard let match = Self.allCases.first(where: { $0.group == group && $0.type == type })
+        else { return nil }
+        self = match
+    }
+
     /// Offset im Frame, ab dem die Nutzdaten dieses Typs beginnen.
-    var payloadOffset: Int {
+    public var payloadOffset: Int {
         switch self {
         case .audioChunk: 12          // davor: Frame-Zähler auf 9, Füllbytes 10/11
         case .fileList: 11            // davor: Eintragszähler LE16 auf 9/10
         case .transferComplete: 10
+        case .recordControl: 9        // Statusbyte; bei einem Stop danach Dauer und file_id
         case .recordingState: 9       // file_id LE32, danach ein Code (immer 2)
-        case .recordControl: 9        // Statusbyte, bei einem Stop danach Dauer und file_id
-        case .keyExchange, .auth, .fileDetail, .timeSync: 8
+        case .deviceInfo, .battery, .charging, .auth, .fileDetail, .keyExchange, .timeSync: 9
         }
     }
 }

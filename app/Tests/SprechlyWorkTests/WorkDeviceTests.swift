@@ -118,6 +118,31 @@ struct WorkDeviceTests {
         #expect(previous[0x6ACE_9692] == .notImported)
     }
 
+    /// Die Geräte-Karte rechnet mit den Werten aus dem echten Frame.
+    @Test("Gerätezustand liefert Prozent und belegten Speicher")
+    func deviceInfoForDisplay() throws {
+        let frame = try #require(Data(hex:
+            "09ff00000101014e00" + "01" + "09" + "01" + "30332e3336" +
+            "33323030376365393133316432373262" + "a0387300" + "a02e7300" +
+            "01" + "312e312e38" + "09" + "212121212121" +
+            "31010100000030332e3032010100000000000000000000" + "cb"
+        ))
+        let info = try D3200DeviceInfo(response: frame)
+
+        #expect(info.battery.percent == 100)
+        #expect(info.isCharging)
+        #expect(info.firmwareVersion == "03.36")
+        #expect(info.usedStorageKB == 2560)
+        // Füllbytes zählen nicht als MAC – die Zeile bleibt in der UI aus.
+        #expect(info.caseMACAddress == nil)
+    }
+
+    @Test("Frisches ViewModel hat noch keinen Gerätezustand")
+    @MainActor
+    func deviceInfoStartsEmpty() {
+        #expect(WorkDeviceViewModel().deviceInfo == nil)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {
@@ -127,5 +152,22 @@ struct WorkDeviceTests {
         #expect(viewModel.items.isEmpty)
         #expect(!viewModel.isReady)
         #expect(viewModel.errorMessage == nil)
+    }
+}
+
+
+private extension Data {
+    /// Hex-String → Data; nur für die Testdaten aus dem Gerätemitschnitt.
+    init?(hex: String) {
+        guard hex.count.isMultiple(of: 2) else { return nil }
+        var bytes = [UInt8]()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index ..< next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        self = Data(bytes)
     }
 }

@@ -39,7 +39,8 @@ struct FrameTests {
         let response = try #require(RCSPFrame.Response(frame: frame))
 
         #expect(response.group == UInt8(group))
-        #expect(response.type == message.rawValue)
+        #expect(response.type == message.type)
+        #expect(response.group == message.group)
         #expect(response.message == message)
         #expect(Int(response.declaredLength) == length)
         #expect(response.frame.count == length)

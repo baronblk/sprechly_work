@@ -305,7 +305,43 @@ Firmwares nur auf Abfrage aktualisieren.
 ### Charging (cmdId `0x04`), payload ≥ 2 Byte
 - `payload[0]` = Gerät lädt (1/0), `payload[1]` = Ladecase lädt (1/0).
 
-### Volles Device-Info (cmdId `0x01`) – sequенziell geparst
+### Am eigenen Gerät verifiziert (2026-10-13)
+
+Alle drei Abfragen wurden gesendet und beantwortet. Abfrage-Commands sind
+10 B: `08 ee 00 00 | 00 <gruppe> <typ> 0a 00 | xor`.
+
+```
+→ 08 ee 00 00 00 01 03 0a 00 08        Akku
+← 09 ff 00 00 01 01 03 0c 00 09 09 2b  Gerät 9, Case 9 → je 100 %
+
+→ 08 ee 00 00 00 01 04 0a 00 0f        Laden
+← 09 ff 00 00 01 01 04 0c 00 01 01 1c  beide 1
+
+→ 08 ee 00 00 00 01 01 0a 00 0a        Geräte-Info
+← 78-B-Antwort (siehe unten)
+```
+
+**Wichtig zur Offsetlage:** Bei Akku und Laden beginnen die Nutzdaten auf
+**Offset 9**. Die Geräte-Info trägt dort ein zusätzliches Byte (`01`), ihre
+Nutzdaten beginnen erst auf **Offset 10**. Wer beide gleich behandelt, liest
+den Akku um ein Byte versetzt.
+
+### Volles Device-Info (cmdId `0x01`), 78 B – am Gerät verifiziert
+
+```
+09 ff 00 00 01 01 01 4e 00 | 01 | 09 | 01 | 30332e3336 | 3332…3262 |
+  0 .. 8                   | @9 |akku|lädt| fw 5 ASCII | serial 16 |
+  a0387300 | a02e7300 | 01     | 312e312e38 | 09       | 212121212121 | …
+  total @33| free  @37| case@41| caseFw @42 | caseAkku | caseMac @48  |
+```
+
+Am eigenen Gerät gelesen: Akku 9 (100 %), lädt, Firmware `03.36`,
+Seriennummer `32007ce9131d272b`, 7 551 136 KB gesamt / 7 548 576 KB frei
+(= 7,20 GiB, 2 560 KB belegt), Ladecase `1.1.8` mit Akku 9, MAC `21 21 …`
+= Füllbytes. Hinter `caseMac` folgen weitere Felder, darunter eine zweite
+Versionszeichenkette (`03.02`); sie sind nicht zugeordnet.
+
+### Feldreihenfolge (Repo-Angabe, oben bestätigt)
 Reihenfolge der Felder im Payload:
 `batteryRaw(1) · chargingStatus(1) · firmware(5 ASCII) · serial(16 ASCII) ·
 totalMemoryKB(u32 LE) · freeMemoryKB(u32 LE) · boxChargingFlag(1) ·

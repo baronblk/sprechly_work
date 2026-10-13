@@ -152,6 +152,31 @@ struct EventTests {
         let response = try #require(RCSPFrame.Response(frame: Self.stoppedFrame))
         #expect(response.group == 0x18)
         #expect(response.type == 0x82)
-        #expect(D3200Message(rawValue: 0x18) == nil)
+        #expect(D3200Message(group: 0x82, type: 0x18) == nil)
+    }
+
+    /// Der Typ allein genügt nicht: `0x01` ist in Gruppe `0x2e` die
+    /// ECDH-Antwort und in Gruppe `0x01` die Geräte-Info.
+    @Test("Gleicher Typ in verschiedenen Gruppen ist eine andere Nachricht")
+    func typeAloneIsAmbiguous() {
+        #expect(D3200Message(group: 0x2E, type: 0x01) == .keyExchange)
+        #expect(D3200Message(group: 0x01, type: 0x01) == .deviceInfo)
+        #expect(D3200Message(group: 0x2E, type: 0x01) != D3200Message(group: 0x01, type: 0x01))
+        // Auch 0x03 doppelt belegt: Auth (0x0b) gegen Akku (0x01).
+        #expect(D3200Message(group: 0x0B, type: 0x03) == .auth)
+        #expect(D3200Message(group: 0x01, type: 0x03) == .battery)
+        #expect(D3200Message(group: 0x99, type: 0x99) == nil)
+    }
+
+    @Test("Abfrage-Commands sind 10 B und tragen Gruppe und Typ", arguments: [
+        D3200Message.deviceInfo, .battery, .charging,
+    ])
+    func buildsQueryCommand(message: D3200Message) {
+        let frame = D3200Commands.query(message)
+        #expect(frame.count == 10)
+        #expect(frame[5] == message.group)
+        #expect(frame[6] == message.type)
+        #expect(frame[7] == 10)  // Länge = Framelänge
+        #expect(frame.last == RCSPFrame.checksum(Data(frame.dropFirst(4).dropLast())))
     }
 }

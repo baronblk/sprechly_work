@@ -177,6 +177,33 @@ public actor D3200Client {
         logger.info("Session-Key abgeleitet")
     }
 
+    /// Fragt den Gerätezustand ab: Akku, Laden, Firmware, Seriennummer,
+    /// Speicher und Ladecase (Spec §7b).
+    ///
+    /// Manche Firmwares aktualisieren nur auf Abfrage – für eine Live-Anzeige
+    /// regelmäßig aufrufen (die Hersteller-App pollt rund alle 15 s).
+    public func fetchDeviceInfo() async throws -> D3200DeviceInfo {
+        try await transport.send(D3200Commands.deviceInfo())
+        let response = try await nextMessage(expecting: [.deviceInfo])
+        return try D3200DeviceInfo(response: response.frame)
+    }
+
+    /// Nur die beiden Akkustände (kürzere Antwort als die volle Geräte-Info).
+    public func fetchBattery() async throws -> D3200PowerStatus {
+        try await transport.send(D3200Commands.battery())
+        let response = try await nextMessage(expecting: [.battery])
+        guard let status = D3200PowerStatus(response: response.frame) else {
+            throw ClientError.unexpectedMessage(group: response.group, type: response.type)
+        }
+        return status
+    }
+
+    /// Schickt eine Abfrage ohne Nutzdaten; die Antwort kommt über `events()`
+    /// bzw. den laufenden Mitschnitt.
+    public func sendQuery(_ message: D3200Message) async throws {
+        try await transport.send(D3200Commands.query(message))
+    }
+
     /// Steuert die Aufnahme am Gerät fern (Spec §7a).
     ///
     /// Die Antwort kommt als unaufgefordertes Ereignis über `events()`,

@@ -33,6 +33,18 @@ enum D3200CTL {
             try await client.syncTime()
             note("Zeit synchronisiert")
 
+            if command == "info" {
+                // Roh abfragen: die Zuordnung der Felder wird an den echten
+                // Bytes geprüft, nicht aus der Repo-Beschreibung übernommen.
+                for message in [D3200Message.deviceInfo, .battery, .charging] {
+                    note("frage \(message) ab …")
+                    try await client.sendQuery(message)
+                    try await Task.sleep(for: .seconds(2))
+                }
+                try await monitor(transport: transport, seconds: seconds)
+                await finish(client, transport, code: 0)
+            }
+
             if command == "record" {
                 let action: D3200RecordAction
                 switch requestedID {
@@ -217,6 +229,8 @@ enum D3200CTL {
                                        (Aufnahme-Start/-Stop, Tasten, Status)
       d3200ctl record start|pause      steuert die Aufnahme fern und zeigt,
                                        was das Gerät daraufhin meldet
+      d3200ctl info                    fragt Geräte-Info, Akku und Ladezustand
+                                       ab und dumpt die Antworten roh
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)

@@ -22,6 +22,8 @@ final class WorkDeviceViewModel {
 
     /// Verstrichene Zeit der laufenden Aufnahme, für die Anzeige.
     var runningDuration: TimeInterval = 0
+    /// Zuletzt abgefragter Gerätezustand; `nil`, solange keiner vorliegt.
+    var deviceInfo: D3200DeviceInfo?
 
     private let importService: WorkImportService
     private let fileStore: RecordingFileStore
@@ -30,6 +32,10 @@ final class WorkDeviceViewModel {
     private var client: D3200Client?
     private var eventTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
+    private var infoTask: Task<Void, Never>?
+    /// Während eines Downloads ruht das Polling – der Client lässt nur einen
+    /// Leser gleichzeitig zu.
+    private var isTransferring = false
 
     init(fileStore: RecordingFileStore = RecordingFileStore()) {
         self.fileStore = fileStore
@@ -54,6 +60,8 @@ final class WorkDeviceViewModel {
             self.client = client
             connection = .ready
             observeEvents(from: client)
+            await refreshDeviceInfo()
+            startPollingDeviceInfo()
             await reloadList()
         } catch {
             logger.error("Verbinden fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
@@ -66,11 +74,14 @@ final class WorkDeviceViewModel {
     func disconnect() async {
         eventTask?.cancel()
         eventTask = nil
+        infoTask?.cancel()
+        infoTask = nil
         stopTicking()
         await client?.disconnect()
         client = nil
         connection = .disconnected
         liveActivity = .idle
+        deviceInfo = nil
         items = []
     }
 
@@ -168,6 +179,31 @@ final class WorkDeviceViewModel {
         tickTask = nil
     }
 
+    // MARK: - Gerätezustand
+
+    /// Holt Akku, Speicher, Firmware und Ladecase-Zustand.
+    func refreshDeviceInfo() async {
+        guard let client, !isTransferring else { return }
+        do {
+            deviceInfo = try await client.fetchDeviceInfo()
+        } catch {
+            logger.error("Geräte-Info fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Manche Firmwares aktualisieren den Zustand nur auf Abfrage, daher
+    /// regelmäßig nachfragen – so wie es die Hersteller-App tut.
+    private func startPollingDeviceInfo(every interval: Duration = .seconds(15)) {
+        infoTask?.cancel()
+        infoTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled else { return }
+                await refreshDeviceInfo()
+            }
+        }
+    }
+
     // MARK: - Aufnahmeliste
 
     func reloadList() async {
@@ -194,6 +230,8 @@ final class WorkDeviceViewModel {
         guard !item.isBusy else { return }
 
         update(item.id) { $0.importState = .downloading(progress: 0) }
+        isTransferring = true
+        defer { isTransferring = false }
         do {
             if await !client.hasSessionKey {
                 try await client.performKeyExchange()

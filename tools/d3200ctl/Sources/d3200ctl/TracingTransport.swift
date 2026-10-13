@@ -24,8 +24,8 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         private var counts: [UInt16: [Int: Int]] = [:]
         private var order: [UInt16] = []
 
-        func record(type: UInt8?, length: Int) {
-            let key = type.map(UInt16.init) ?? 0xFFFF
+        func record(group: UInt8?, type: UInt8?, length: Int) {
+            let key = (group.map { UInt16($0) << 8 } ?? 0xFF00) | (type.map(UInt16.init) ?? 0x00FF)
             lock.withLock {
                 if counts[key] == nil { order.append(key) }
                 counts[key, default: [:]][length, default: 0] += 1
@@ -39,10 +39,12 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
                         .sorted { $0.key < $1.key }
                         .map { "\($0.key) B ×\($0.value)" }
                         .joined(separator: ", ")
-                    let name = key == 0xFFFF
+                    let group = UInt8(key >> 8)
+                    let type = UInt8(key & 0xFF)
+                    let name = key == 0xFF_FF
                         ? "(zu kurz)"
-                        : String(format: "Typ 0x%02x %@", key,
-                                 D3200Message(rawValue: UInt8(key))
+                        : String(format: "grp 0x%02x typ 0x%02x %@", group, type,
+                                 D3200Message(group: group, type: type)
                                      .map { "(\($0))" } ?? "(unbekannt)")
                     return "  \(name): \(lengths)"
                 }.joined(separator: "\n")
@@ -71,7 +73,8 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
             tap = Task { [weak self] in
                 for await frame in inner {
                     guard let self else { return }
-                    stats.record(type: RCSPFrame.Response(frame: frame)?.type, length: frame.count)
+                    let response = RCSPFrame.Response(frame: frame)
+                    stats.record(group: response?.group, type: response?.type, length: frame.count)
                     log("←", frame)
                     let sinks = lock.withLock { Array(self.sinks.values) }
                     for sink in sinks { sink.yield(frame) }
@@ -111,7 +114,7 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         }
         // Kurze Frames vollständig dumpen – sie tragen die Layouts, die wir
         // gegen die Spec prüfen. Audio-Chunks nur anreißen.
-        let limit = frame.count <= 64 ? frame.count : 16
+        let limit = frame.count <= 128 ? frame.count : 16
         let head = frame.prefix(limit).map { String(format: "%02x", $0) }.joined(separator: " ")
         let tail = frame.count > limit
             ? " … \(String(format: "%02x", frame[frame.index(before: frame.endIndex)]))"
