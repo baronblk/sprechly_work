@@ -84,7 +84,16 @@ struct WorkDeviceCard: View {
     /// Zeigt, was der automatische Import gerade tut. Ohne das liefe er
     /// unsichtbar, denn die Dateiliste ist dabei normalerweise zu.
     @ViewBuilder private var importRow: some View {
-        if let laufend = work.activeImport {
+        if let titel = work.transcribingTitle {
+            HStack(spacing: Theme.Spacing.sm) {
+                ProgressView().controlSize(.small)
+                Text("Transkribiere \(titel) …")
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+        } else if let laufend = work.activeImport {
             HStack(spacing: Theme.Spacing.sm) {
                 ProgressView().controlSize(.small)
                 VStack(alignment: .leading, spacing: 2) {

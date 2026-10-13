@@ -38,6 +38,12 @@ final class WorkDeviceViewModel {
     var modelContainer: ModelContainer?
     /// Ob eine am Gerät beendete Aufnahme von selbst in die Bibliothek wandert.
     var importsAutomatically = true
+    /// Für die automatische Transkription – sie ist an den KI-Kauf gebunden.
+    var entitlements: (any EntitlementProviding)?
+    /// Woher die Schalter gelesen werden; in Tests ersetzbar.
+    var settings: UserDefaults = .standard
+    /// Aufnahme, die gerade transkribiert wird – für die Anzeige in der Karte.
+    private(set) var transcribingTitle: String?
 
     private var client: D3200Client?
     private var eventTask: Task<Void, Never>?
@@ -380,14 +386,49 @@ final class WorkDeviceViewModel {
 
         // Kurze Bestätigung in der Karte, dann wieder weg.
         if let fertig = items.first(where: { $0.id == fileID }),
-           case .imported = fertig.importState {
+           case .imported(let recordingID) = fertig.importState {
             recentlyImported = fertig
+            await autoTranscribe(recordingID: recordingID, title: WorkImportService.title(for: fertig.recording))
             confirmationTask?.cancel()
             confirmationTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(8))
                 guard let self, !Task.isCancelled else { return }
                 recentlyImported = nil
             }
+        }
+    }
+
+    /// Transkribiert die eben importierte Aufnahme, wenn eingeschaltet.
+    ///
+    /// Nutzt denselben Weg wie der Transkript-Bildschirm, damit es genau ein
+    /// Verfahren gibt. Ohne den KI-Kauf liefe dort nur eine Vorschau, die
+    /// nichts speichert – dann bleibt es aus.
+    private func autoTranscribe(recordingID: UUID, title: String) async {
+        guard settings.bool(forKey: WorkSettings.autoTranscribeKey),
+              let entitlements, entitlements.isUnlocked(.ai),
+              let modelContainer
+        else { return }
+
+        let context = modelContainer.mainContext
+        let descriptor = FetchDescriptor<Recording>(
+            predicate: #Predicate { $0.id == recordingID }
+        )
+        guard let recording = try? context.fetch(descriptor).first else {
+            logger.error("Aufnahme für die Transkription nicht gefunden")
+            return
+        }
+
+        logger.info("transkribiere \(title, privacy: .public) automatisch")
+        transcribingTitle = title
+        defer { transcribingTitle = nil }
+
+        let transcription = TranscriptionViewModel(recording: recording)
+        transcription.configure(modelContext: context, store: entitlements)
+        await transcription.loadInstalledLocales()
+        await transcription.transcribe()
+
+        if let fehler = transcription.errorMessage {
+            logger.error("Transkription fehlgeschlagen: \(fehler, privacy: .public)")
         }
     }
 

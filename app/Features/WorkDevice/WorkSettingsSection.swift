@@ -4,6 +4,10 @@ import SwiftUI
 enum WorkSettings {
     /// Ob sich die App beim Öffnen selbst verbindet.
     static let autoConnectKey = "workAutoConnect"
+    /// Ob der Bildschirm anbleibt, solange der Work verbunden ist.
+    static let keepAwakeKey = "workKeepAwake"
+    /// Ob eine importierte Aufnahme gleich transkribiert wird.
+    static let autoTranscribeKey = "workAutoTranscribe"
 }
 
 /// Abschnitt „Soundcore Work" in den Einstellungen: hier wird verbunden.
@@ -12,6 +16,9 @@ enum WorkSettings {
 struct WorkSettingsSection: View {
     @Environment(WorkDeviceViewModel.self) private var work
     @AppStorage(WorkSettings.autoConnectKey) private var autoConnect = false
+    @AppStorage(WorkSettings.keepAwakeKey) private var keepAwake = false
+    @AppStorage(WorkSettings.autoTranscribeKey) private var autoTranscribe = false
+    @Environment(StoreManager.self) private var store
 
     var body: some View {
         Section {
@@ -61,6 +68,29 @@ struct WorkSettingsSection: View {
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
             }
+
+            Toggle(isOn: $keepAwake) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bildschirm anlassen")
+                    Text("Nur solange der Work verbunden ist. Im Standby bricht die Bluetooth-Verbindung ab.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+
+            Toggle(isOn: $autoTranscribe) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Importierte Aufnahmen transkribieren")
+                    Text(store.isUnlocked(.ai)
+                         ? "Läuft direkt nach dem Import, auf dem Gerät."
+                         : "Benötigt den KI-Kauf.")
+                        .font(.caption)
+                        .foregroundStyle(store.isUnlocked(.ai)
+                                         ? Theme.Colors.textSecondary
+                                         : Theme.Colors.destructive)
+                }
+            }
+            .disabled(!store.isUnlocked(.ai))
         } header: {
             Text("Soundcore Work")
         } footer: {

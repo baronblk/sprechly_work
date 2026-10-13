@@ -297,6 +297,40 @@ struct WorkDeviceTests {
         #expect(viewModel.connection == .connecting)
     }
 
+    /// Ohne den KI-Kauf liefe nur eine Vorschau, die nichts speichert – dann
+    /// ist automatisches Transkribieren sinnlos und bleibt aus.
+    @Test("Automatische Transkription braucht Schalter und KI-Kauf")
+    @MainActor
+    func autoTranscribeNeedsSwitchAndEntitlement() {
+        let defaults = UserDefaults(suiteName: "WorkTranscribe-\(UUID().uuidString)")!
+        let viewModel = WorkDeviceViewModel()
+        viewModel.settings = defaults
+
+        // Voreinstellung: aus.
+        #expect(!defaults.bool(forKey: WorkSettings.autoTranscribeKey))
+
+        defaults.set(true, forKey: WorkSettings.autoTranscribeKey)
+        #expect(defaults.bool(forKey: WorkSettings.autoTranscribeKey))
+
+        // Ohne Entitlement-Quelle passiert trotzdem nichts.
+        #expect(viewModel.entitlements == nil)
+        #expect(viewModel.transcribingTitle == nil)
+    }
+
+    @Test("Die drei Work-Schalter sind alle voreingestellt aus")
+    func workSwitchesAreOptIn() {
+        let defaults = UserDefaults(suiteName: "WorkSwitches-\(UUID().uuidString)")!
+        #expect(!defaults.bool(forKey: WorkSettings.autoConnectKey))
+        #expect(!defaults.bool(forKey: WorkSettings.keepAwakeKey))
+        #expect(!defaults.bool(forKey: WorkSettings.autoTranscribeKey))
+        // Verschiedene Schlüssel, damit kein Schalter einen anderen mitzieht.
+        #expect(Set([
+            WorkSettings.autoConnectKey,
+            WorkSettings.keepAwakeKey,
+            WorkSettings.autoTranscribeKey,
+        ]).count == 3)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {

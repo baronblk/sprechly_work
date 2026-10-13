@@ -32,6 +32,7 @@ struct SprechlyWorkApp: App {
                     // Ohne den Container kann eine fertige Geräte-Aufnahme
                     // nicht von selbst in die Bibliothek wandern.
                     appState.workDevice.modelContainer = modelContainer
+                    appState.workDevice.entitlements = appState.store
                     guard !isRunningTests else { return }
                     appState.syncMonitor.start()
                     await appState.store.start()

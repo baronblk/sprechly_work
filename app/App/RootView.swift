@@ -26,11 +26,17 @@ struct RootView: View {
     @State private var measuredTabBarHeight: CGFloat = 0
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage(WorkSettings.autoConnectKey) private var workAutoConnect = false
+    @AppStorage(WorkSettings.keepAwakeKey) private var workKeepAwake = false
     @Environment(WorkDeviceViewModel.self) private var work
     #if DEBUG
     /// Presents the paywall at launch for the IAP review screenshot.
     @State private var showLaunchPaywall = ProcessInfo.processInfo.arguments.contains("SHOW_PAYWALL")
     #endif
+
+    /// Hält den Bildschirm an, solange es etwas zu sehen gibt.
+    private func applyIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled = workKeepAwake && work.isReady
+    }
 
     @ViewBuilder private var content: some View {
         switch tab {
@@ -58,6 +64,11 @@ struct RootView: View {
                 CloudAudioReconciler.reconcile(container: modelContext.container)
             }
         }
+        // Im Standby bricht die Bluetooth-Verbindung ab, deshalb nur solange
+        // der Work wirklich verbunden ist – und nie darüber hinaus.
+        .onChange(of: work.isReady) { _, _ in applyIdleTimer() }
+        .onChange(of: workKeepAwake) { _, _ in applyIdleTimer() }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 if workAutoConnect {
