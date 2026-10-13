@@ -120,6 +120,30 @@ Notation: Payload-Bytes (hinter Präfix `08 EE 00 00`, vor dem XOR-Checksum).
 | File-Detail / Download | `00 1a 07 12 00 00 00 00 00` + `<file_id 4B>` | file_id = 4 Byte, little-endian |
 | ECDH | `00 2e 01 4b 00 04` + `<pubkey 64B>` | pubkey = X‖Y big-endian (unkomprimierter P-256-Punkt ohne 0x04-Präfix) |
 
+### Vollständiger Command-Katalog (cmdType/cmdId, aus Community-Repo)
+Ergänzt die verifizierten Rohpayloads oben. Frame beim Senden immer über den
+`08ee`-Kanal an `0xA102` mit XOR-Checksum (§2); Längen-/Byte-Wrapping beim
+Implementieren einmal gegen das reale Gerät gegenprüfen.
+
+| Funktion | cmdType | cmdId | Payload |
+|----------|---------|-------|---------|
+| Device-Info | 0x01 | 0x01 | – |
+| Factory-Reset | 0x01 | 0xB8 | – |
+| Time-Sync | 0x01 | 0xA6 | tz/ts |
+| Record Start/Resume | 0x18 | 0x82 | `01` |
+| Record Pause | 0x18 | 0x82 | `02` |
+| Dateiliste | 0x1A | 0x0E | u16LE(page) |
+| Dateiliste (alt) | 0x1B | 0x0E | u16LE(page) |
+| Datei löschen | 0x1A | 0x10 | u32LE(fileId) |
+| BT-Transport starten | 0x1A | 0x0F | `00` (iOS: `01`) |
+| BT-Transport stoppen | 0x1A | 0x11 | `00` (iOS: `01`) |
+| Datei-Transfer (Download) | 0x1A | 0x07 | fileId + realtimeFlag |
+| WLAN-SoftAP konfigurieren | 0x1A | 0x05 | `[ssid_len][ssid][pwd_len][pwd]` |
+| WLAN schließen | 0x1A | 0x02 | – |
+| ECDH-Handshake | 0x2E | 0x01 | pubkey |
+| Binding | 0x0B | 0x87 | `01`/`00` |
+| Einstellung (More) | 0x10 | 0xA2 | `01`/`00` |
+
 ### Dateiliste-Parsing (`0e1c`-Antwort)
 Der Command trägt `0e 0c`, die **Antwort** trägt `0e 1c`. Layout (am Gerät verifiziert):
 
@@ -223,6 +247,24 @@ ffprobe am eigenen Ergebnis bestätigte: `codec=opus, 48000 Hz, stereo` (Opus de
 intern immer auf 48 kHz).
 
 ---
+
+## 7a. Record-Control (bidirektional) – aus Community-Repo verifiziert
+
+Die Aufnahme wird über **cmdType `0x18`, cmdId `0x82`** ferngesteuert (Payload 1 Byte):
+
+| Aktion | cmdType/cmdId | Payload | Hinweis |
+|--------|---------------|---------|---------|
+| **Start** | 0x18 / 0x82 | `01` | neue Aufnahme |
+| **Pause** | 0x18 / 0x82 | `02` | |
+| **Resume** | 0x18 / 0x82 | `01` | identisch zu Start; Gerät erkennt Resume daran, dass der vorige Status 2 (pause) war |
+| **Stop** | — | — | **kein eigener App-Befehl im Repo**; Stop kommt per Hardware-Taste bzw. das Gerät meldet Status 0. Noch offen, ob ein Stop-Command existiert → ggf. per Capture. |
+
+**Status-Notification vom Gerät** (Opcode `0x18/0x82`, alternativ `0x1A/0x06`):
+`status 0 = stop, 1 = recording, 2 = pause`, optional mit `fileId` und `durationSec`.
+Die App pollt zusätzlich Device-Info für das Recording-Bit.
+
+> Korrektur: Der im eigenen Capture als „Transfer init" notierte Opcode `18 82`
+> ist in Wahrheit **Audio/Record-Control**.
 
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**
