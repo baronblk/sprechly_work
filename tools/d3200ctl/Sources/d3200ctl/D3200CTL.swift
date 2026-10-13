@@ -80,6 +80,54 @@ enum D3200CTL {
                 ))
             }
 
+            if command == "realtime" {
+                // Der Download-Befehl trägt laut Katalog `fileId + realtimeFlag`.
+                // Welches der Nullbytes das Flag ist, steht nirgends – also
+                // der Reihe nach durchprobieren und schauen, wo Chunks kommen.
+                note("ECDH-Handshake …")
+                try await client.performKeyExchange()
+                let frames = transport.notifications()
+                note("starte Aufnahme am Gerät …")
+                try await client.sendRecordControl(.start)
+
+                var liveFileID: UInt32?
+                for await event in await client.events() {
+                    if case .recordingState(let fileID, _) = event { liveFileID = fileID; break }
+                }
+                guard let liveFileID else { await finish(client, transport, code: 1) }
+                note("laufende Aufnahme: \(String(format: "%08x", liveFileID))")
+
+                // Chunk-Zähler im Hintergrund
+                let counter = ChunkCounter()
+                let watcher = Task {
+                    for await frame in frames {
+                        if RCSPFrame.Response(frame: frame)?.message == .audioChunk {
+                            counter.increment()
+                        }
+                    }
+                }
+
+                for offset in 8 ... 12 {
+                    counter.reset()
+                    var payload = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    payload[offset - 4] = 0x01     // Payload beginnt bei Frame-Offset 4
+                    payload.append(littleEndianBytes: liveFileID)
+                    let frame = RCSPFrame.command(payload: payload)
+                    note("Flag auf Offset \(offset): \(frame.map { String(format: "%02x", $0) }.joined(separator: " "))")
+                    try await transport.send(frame)
+                    try await Task.sleep(for: .seconds(4))
+                    let count = counter.value
+                    note(count > 0 ? "  → \(count) Audio-Chunks!" : "  → nichts")
+                    if count > 0 { break }
+                }
+
+                watcher.cancel()
+                note("stoppe die Aufnahme wieder")
+                try? await client.sendRecordControl(.stop)
+                try? await Task.sleep(for: .seconds(2))
+                await finish(client, transport, code: 0)
+            }
+
             if command == "live" {
                 // Prüft, ob das Gerät die gerade laufende Aufnahme streamt.
                 // Dann gäbe es Pegel und später Live-Transkript.
@@ -307,6 +355,15 @@ enum D3200CTL {
             guard shouldPrint else { return }
             FileHandle.standardError.write(Data("  \(done)/\(total) B\n".utf8))
         }
+    }
+
+    /// Zählt eingehende Audio-Chunks über Task-Grenzen hinweg.
+    final class ChunkCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func increment() { lock.withLock { count += 1 } }
+        func reset() { lock.withLock { count = 0 } }
+        var value: Int { lock.withLock { count } }
     }
 
     static let usage = """

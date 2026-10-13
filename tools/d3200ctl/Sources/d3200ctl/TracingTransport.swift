@@ -122,3 +122,11 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         FileHandle.standardError.write(Data("\(direction) \(label)  \(head)\(tail)\n".utf8))
     }
 }
+
+
+extension Data {
+    /// Hängt einen 32-Bit-Wert little-endian an.
+    mutating func append(littleEndianBytes value: UInt32) {
+        append(contentsOf: (0 ..< 4).map { UInt8(truncatingIfNeeded: value >> (8 * $0)) })
+    }
+}
