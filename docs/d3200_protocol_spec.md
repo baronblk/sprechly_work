@@ -262,9 +262,16 @@ verifiziert (2026-10-13).
 - `file_id = LE32(data[15:19])` – dieselbe ID wie im Start-Push.
 
 ### Verhalten des Geräts
-- **Es gibt kein Pause.** Jeder Tastendruck schaltet um; „pausieren und
-  weiter" erzeugt **zwei getrennte Aufnahmen** mit eigenen `file_id`s.
-  Beobachtet: Start → Ende (20 s) → Start (neue ID) → Ende (13 s).
+- **Pause ist über BLE unsichtbar.** Das Gerät hat eine Pause-Funktion, aber
+  sie erzeugt **kein** Ereignis. Verifiziert mit der Sequenz
+  Start → Pause → Weiter → Stop: es kam nur ein Start-Push (48,6 s) und ein
+  Ende-Push (81,3 s) mit **derselben** `file_id`, und in der Dateiliste stand
+  danach **eine** Aufnahme (`6ace9c87`, 35,4 s). Pause/Weiter bleibt also
+  innerhalb einer Aufnahme.
+  Eine App kann daher nur „läuft" und „fertig" anzeigen, keinen Pause-Zustand.
+- Mehrere getrennte Aufnahmen entstehen durch Stop und erneutes Start – dabei
+  bekommt jedes Segment eine eigene `file_id` (beobachtet: Ende 20 s, dann
+  Start mit neuer ID, Ende 13 s).
 - Der Start-Push kommt **~2 s nach** dem Tastendruck: die gemeldete Dauer liegt
   konstant 2–2,5 s über dem Abstand der beiden Pushes. Für die Anzeige ist
   daher die Dauer aus dem Ende-Push bzw. der Dateiliste maßgeblich, nicht die

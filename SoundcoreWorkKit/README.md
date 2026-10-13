@@ -109,9 +109,11 @@ Task {
 }
 ```
 
-**Der Work kennt kein Pause.** Jeder Tastendruck schaltet um; „pausieren und
-weiter" erzeugt zwei getrennte Aufnahmen mit eigenen `file_id`s. Wer eine
-Pause-Anzeige baut, baut sie an der Realität vorbei.
+**Pause ist über BLE unsichtbar.** Das Gerät kann pausieren, meldet es aber
+nicht: bei Start → Pause → Weiter → Stop kamen nur ein Start- und ein
+Ende-Push mit derselben `file_id`, und die Liste zeigte danach **eine**
+Aufnahme (35,4 s). Die App kann deshalb „läuft" und „fertig" anzeigen, aber
+keinen Pause-Zustand – eine Pause-Anzeige wäre geraten.
 
 ### Noch offen
 
