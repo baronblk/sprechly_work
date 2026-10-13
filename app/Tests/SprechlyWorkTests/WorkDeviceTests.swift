@@ -271,6 +271,32 @@ struct WorkDeviceTests {
         #expect(viewModel.failedImport?.id == 0x6ACE_B43C)
     }
 
+    /// Der automatische Versuch darf nur greifen, wenn gerade nichts läuft –
+    /// sonst fiele er einer bestehenden Verbindung in den Rücken.
+    @Test("Automatisches Verbinden ist voreingestellt aus")
+    func autoConnectIsOptIn() {
+        // Voreinstellung ohne gespeicherten Wert.
+        let defaults = UserDefaults(suiteName: "WorkDeviceTests-\(UUID().uuidString)")!
+        #expect(defaults.object(forKey: WorkSettings.autoConnectKey) == nil)
+        #expect(defaults.bool(forKey: WorkSettings.autoConnectKey) == false)
+    }
+
+    @Test("Ein laufender oder bestehender Verbindungsversuch wird nicht gestört")
+    @MainActor
+    func autoConnectRespectsExistingState() async {
+        let viewModel = WorkDeviceViewModel()
+
+        // Bereits verbunden: Der automatische Versuch ändert nichts.
+        viewModel.connection = .ready
+        await viewModel.connectAutomatically()
+        #expect(viewModel.connection == .ready)
+
+        // Mitten im Verbinden: ebenfalls unangetastet.
+        viewModel.connection = .connecting
+        await viewModel.connectAutomatically()
+        #expect(viewModel.connection == .connecting)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {

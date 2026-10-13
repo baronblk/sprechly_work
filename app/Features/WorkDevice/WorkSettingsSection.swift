@@ -1,10 +1,17 @@
 import SwiftUI
 
+/// Einstellungen rund um den Soundcore Work.
+enum WorkSettings {
+    /// Ob sich die App beim Öffnen selbst verbindet.
+    static let autoConnectKey = "workAutoConnect"
+}
+
 /// Abschnitt „Soundcore Work" in den Einstellungen: hier wird verbunden.
 ///
 /// Der Aufnahme-Screen zeigt danach eine Karte mit Zustand und Fernsteuerung.
 struct WorkSettingsSection: View {
     @Environment(WorkDeviceViewModel.self) private var work
+    @AppStorage(WorkSettings.autoConnectKey) private var autoConnect = false
 
     var body: some View {
         Section {
@@ -44,6 +51,15 @@ struct WorkSettingsSection: View {
                     Text("Mit Work verbinden")
                 }
                 .disabled(work.connection.isBusy)
+            }
+
+            Toggle(isOn: $autoConnect) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Beim Öffnen verbinden")
+                    Text("Versucht es still; findet die App den Work nicht, passiert nichts.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
             }
         } header: {
             Text("Soundcore Work")

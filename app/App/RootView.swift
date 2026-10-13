@@ -25,6 +25,8 @@ struct RootView: View {
     /// split view's detail column can clear it (see `TabBarHeight.swift`).
     @State private var measuredTabBarHeight: CGFloat = 0
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage(WorkSettings.autoConnectKey) private var workAutoConnect = false
+    @Environment(WorkDeviceViewModel.self) private var work
     #if DEBUG
     /// Presents the paywall at launch for the IAP review screenshot.
     @State private var showLaunchPaywall = ProcessInfo.processInfo.arguments.contains("SHOW_PAYWALL")
@@ -46,6 +48,7 @@ struct RootView: View {
             NavigationStack { SettingsView() }
         }
         .task {
+            if workAutoConnect { await work.connectAutomatically() }
             purgeExpiredTrash()
             TranscriptMarkupRepair.run(in: modelContext)
             CloudAudioReconciler.reconcile(container: modelContext.container)
@@ -57,6 +60,9 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                if workAutoConnect {
+                    Task { await work.connectAutomatically() }
+                }
                 CloudAudioReconciler.reconcile(container: modelContext.container)
             }
         }

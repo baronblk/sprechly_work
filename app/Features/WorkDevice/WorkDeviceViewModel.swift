@@ -71,7 +71,17 @@ final class WorkDeviceViewModel {
 
     // MARK: - Verbindung
 
-    func connect() async {
+    /// Verbindet beim Öffnen der App, sofern eingeschaltet.
+    ///
+    /// Scheitert still: Ein automatischer Versuch, der das Gerät nicht findet
+    /// – weil es im Case liegt oder am Handy hängt –, ist der Normalfall und
+    /// kein Anlass für eine Fehlermeldung.
+    func connectAutomatically() async {
+        guard connection != .connecting, connection != .ready else { return }
+        await connect(automatically: true)
+    }
+
+    func connect(automatically: Bool = false) async {
         guard connection != .connecting, connection != .ready else { return }
         connection = .connecting
         errorMessage = nil
@@ -90,7 +100,8 @@ final class WorkDeviceViewModel {
         } catch {
             logger.error("Verbinden fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             connection = .failed(error.localizedDescription)
-            errorMessage = error.localizedDescription
+            // Nur ein selbst ausgelöster Versuch rechtfertigt einen Hinweis.
+            if !automatically { errorMessage = error.localizedDescription }
             await client.disconnect()
         }
     }
