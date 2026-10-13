@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct TrimGeometryTests {
     @Test func timeAndXRoundTrip() {

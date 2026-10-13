@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 private final class GateStubTranscription: TranscriptionProviding, @unchecked Sendable {
     var drafts: [TranscriptDraft] = [TranscriptDraft(text: "hallo", startTime: 0, endTime: 1)]

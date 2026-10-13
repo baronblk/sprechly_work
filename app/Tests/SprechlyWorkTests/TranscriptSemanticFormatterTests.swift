@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The formatter's value depends entirely on it *not* touching correct text.
 /// Every rule therefore gets its negative cases first.

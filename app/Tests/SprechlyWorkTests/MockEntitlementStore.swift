@@ -1,5 +1,5 @@
 import Foundation
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Configurable test double for `EntitlementProviding`.
 @MainActor

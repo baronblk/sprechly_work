@@ -1,6 +1,6 @@
 import AVFoundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct RecorderConverterFactoryTests {
     private let target = AVAudioFormat(

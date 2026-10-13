@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Reproduces the reported bug: an imported recording (CAF → m4a via the export
 /// service) must be openable by the playback engine (`AVAudioPlayer`), exactly

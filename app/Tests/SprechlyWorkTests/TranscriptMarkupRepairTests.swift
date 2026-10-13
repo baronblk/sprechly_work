@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The migration rewrites text the user already has, so its restraint matters
 /// more than its reach: it must fix the marker bug and change nothing else.

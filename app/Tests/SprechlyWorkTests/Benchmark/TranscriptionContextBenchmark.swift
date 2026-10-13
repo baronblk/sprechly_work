@@ -5,16 +5,16 @@ import Testing
 #if !targetEnvironment(simulator)
 import UIKit
 #endif
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// A/B benchmark for `AnalysisContext.contextualStrings` against the pipeline
 /// the app actually ships.
 ///
 /// Run on a device:
 /// ```
-/// xcodebuild test -project VoxStudio.xcodeproj -scheme VoxStudio \
+/// xcodebuild test -project SprechlyWork.xcodeproj -scheme SprechlyWork \
 ///   -destination 'platform=iOS,id=<device-udid>' \
-///   -only-testing:VoxStudioTests/TranscriptionContextBenchmark
+///   -only-testing:SprechlyWorkTests/TranscriptionContextBenchmark
 /// ```
 /// In the simulator every test reports "skipped": the Speech stack is
 /// device-only, so a run there would measure nothing. CI stays green.

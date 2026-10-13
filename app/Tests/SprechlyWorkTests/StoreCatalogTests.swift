@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct StoreCatalogTests {
     @Test func aiProductGrantsAI() {

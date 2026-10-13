@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct PlaybackSkipTests {
     @Test func skipsForwardWithinBounds() {

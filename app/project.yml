@@ -16,6 +16,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: KZFCCDV6A8
 
+packages:
+  SoundcoreWorkKit:
+    path: ../SoundcoreWorkKit
+
 targets:
   SprechlyWork:
     type: application
@@ -37,6 +41,7 @@ targets:
       - path: Resources
     dependencies:
       - target: SprechlyWorkWidgets
+      - package: SoundcoreWorkKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: de.gcng.sprechly.work

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct PeakLimiterTests {
     private var target: Float { Float(pow(10.0, -1.0 / 20.0)) }

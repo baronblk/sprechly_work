@@ -1,6 +1,6 @@
 import AVFoundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct AudioMergeServiceTests {
     private let service = AudioMergeService()

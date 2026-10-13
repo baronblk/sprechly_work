@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 
 @main
-struct VoxStudioApp: App {
+struct SprechlyWorkApp: App {
     @State private var appState = AppState(store: StoreManager())
     private let modelContainer: ModelContainer = {
         #if DEBUG

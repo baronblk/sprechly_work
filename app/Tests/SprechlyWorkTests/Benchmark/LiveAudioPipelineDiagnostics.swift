@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Speech
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Measures the live audio path's actual formats and conversion count.
 ///

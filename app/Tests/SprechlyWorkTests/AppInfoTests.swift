@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct AppInfoTests {
     @Test func formatsVersionWithBuild() {

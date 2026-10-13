@@ -3,7 +3,7 @@ import Foundation
 import Speech
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// End-to-end verification of the formatter's production wiring on real
 /// hardware: the shipping service transcribes a frozen fixture, the result is

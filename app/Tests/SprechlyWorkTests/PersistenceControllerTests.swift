@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 @MainActor
 struct PersistenceControllerTests {
@@ -14,7 +14,7 @@ struct PersistenceControllerTests {
         let url = try PersistenceController.storeURL(inApplicationSupport: base)
 
         #expect(FileManager.default.fileExists(atPath: base.path))
-        #expect(url.lastPathComponent == "VoxStudio.store")
+        #expect(url.lastPathComponent == "SprechlyWork.store")
     }
 
     @Test func explicitURLStorePersistsAcrossInstances() throws {
@@ -22,7 +22,7 @@ struct PersistenceControllerTests {
             .appendingPathComponent("voxstore-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("VoxStudio.store")
+        let url = dir.appendingPathComponent("SprechlyWork.store")
 
         let first = try PersistenceController.container(at: url, cloudKit: false)
         first.mainContext.insert(Recording(title: "Persisted", fileName: "p.m4a", duration: 1))

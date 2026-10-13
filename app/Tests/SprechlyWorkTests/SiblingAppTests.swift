@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The cross-promotion link points at a different app than this one, so a wrong
 /// id would send users to a stranger's product rather than fail visibly.

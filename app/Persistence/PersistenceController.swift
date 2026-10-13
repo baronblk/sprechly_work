@@ -16,7 +16,7 @@ enum PersistenceController {
     /// Ensures `Application Support` exists and returns the store URL inside it.
     static func storeURL(inApplicationSupport appSupport: URL) throws -> URL {
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        return appSupport.appendingPathComponent("VoxStudio.store")
+        return appSupport.appendingPathComponent("SprechlyWork.store")
     }
 
     /// The system Application Support directory, created if missing.

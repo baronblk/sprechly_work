@@ -1,6 +1,6 @@
 import AVFoundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct AudioMixServiceTests {
     private let service = AudioMixService()

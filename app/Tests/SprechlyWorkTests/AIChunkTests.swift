@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct AIChunkTests {
     @Test func shortTextIsSingleChunk() {

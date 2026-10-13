@@ -51,7 +51,7 @@ private struct RequiresEntitlementModifier: ViewModifier {
                         .onTapGesture(perform: onLocked)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(Text("Gesperrt"))
-                        .accessibilityHint(Text("Erfordert den VoxStudio-KI-Kauf"))
+                        .accessibilityHint(Text("Erfordert den Sprechly-Work-KI-Kauf"))
                 }
             }
     }

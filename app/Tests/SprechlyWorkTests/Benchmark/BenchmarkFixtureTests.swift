@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Guards the frozen benchmark audio.
 ///

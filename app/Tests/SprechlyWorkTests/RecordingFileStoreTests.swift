@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct RecordingFileStoreTests {
     private func makeStore() throws -> (RecordingFileStore, URL) {

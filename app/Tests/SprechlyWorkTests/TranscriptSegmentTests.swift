@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 @MainActor
 struct TranscriptSegmentTests {

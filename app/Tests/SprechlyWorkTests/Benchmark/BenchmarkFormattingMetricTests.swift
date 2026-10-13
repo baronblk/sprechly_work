@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The Phase-4 metrics decide whether the formatter ships, so their definitions
 /// are tested rather than assumed.

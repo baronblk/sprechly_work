@@ -4,7 +4,7 @@ import Testing
 #if !targetEnvironment(simulator)
 import UIKit
 #endif
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Phase 4: does deterministic post-formatting improve the shipping transcript?
 ///

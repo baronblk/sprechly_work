@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// What the two live conversions actually cost, measured on device with the
 /// real formats from `LiveAudioPipelineDiagnostics`.

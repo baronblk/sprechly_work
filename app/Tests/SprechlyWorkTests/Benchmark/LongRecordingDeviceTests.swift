@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Records from the real microphone for a configurable span and checks the
 /// result for the failure modes a long session actually has: drift between

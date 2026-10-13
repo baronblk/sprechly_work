@@ -1,7 +1,7 @@
 import Foundation
 import Speech
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct TranscriptionLocaleTests {
     @Test func supportsGermanAndEnglish() {

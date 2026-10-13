@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Pins down when a finished recording becomes readable.
 ///

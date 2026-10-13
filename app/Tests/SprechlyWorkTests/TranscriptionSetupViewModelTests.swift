@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 private final class MockTranscriptionService: TranscriptionProviding, @unchecked Sendable {
     var states: [String: TranscriptionAssetState] = [:]

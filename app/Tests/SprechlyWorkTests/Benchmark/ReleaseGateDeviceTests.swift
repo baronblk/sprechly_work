@@ -2,7 +2,7 @@ import Foundation
 import StoreKit
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The automatable parts of release gates 3e (transcript export) and 3b (the
 /// in-app purchase), on real hardware.

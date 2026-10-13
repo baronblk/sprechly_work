@@ -2,7 +2,7 @@ import Foundation
 import StoreKit
 import StoreKitTest
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Marker for locating the StoreKit configuration inside the test bundle.
 private final class TestBundleMarker {}
@@ -26,7 +26,7 @@ struct StoreManagerPurchaseTests {
     private func makeSession() throws -> SKTestSession {
         let url = try #require(
             Bundle(for: TestBundleMarker.self)
-                .url(forResource: "VoxStudio", withExtension: "storekit")
+                .url(forResource: "SprechlyWork", withExtension: "storekit")
         )
         let session = try SKTestSession(contentsOf: url)
         session.resetToDefaultState()

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// The reconciler runs on every launch, foreground and remote change, so its
 /// two directions (file → `audioData`, `audioData` → file) have to hold up over

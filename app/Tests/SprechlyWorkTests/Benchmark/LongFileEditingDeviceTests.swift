@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Release gate 2a: editor, merge, mix and export against a file of half an
 /// hour or more, on real hardware.

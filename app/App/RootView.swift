@@ -4,10 +4,24 @@ import SwiftUI
 
 /// Top-level destinations.
 private enum RootTab: String, CaseIterable, Identifiable {
-    case recording, library
+    case recording, work, library
     var id: String { rawValue }
-    var title: LocalizedStringKey { self == .recording ? "Aufnahme" : "Bibliothek" }
-    var icon: String { self == .recording ? "mic.fill" : "waveform" }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .recording: "Aufnahme"
+        case .work: "Work"
+        case .library: "Bibliothek"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .recording: "mic.fill"
+        case .work: "dot.radiowaves.left.and.right"
+        case .library: "waveform"
+        }
+    }
 }
 
 /// Root navigation: a flat, full-width bottom bar (icon over label) instead of
@@ -34,6 +48,8 @@ struct RootView: View {
         switch tab {
         case .recording:
             RecordingView(onOpenLibrary: { tab = .library })
+        case .work:
+            WorkDeviceView(onOpenLibrary: { tab = .library })
         case .library:
             LibraryView(onStartRecording: { tab = .recording })
         }

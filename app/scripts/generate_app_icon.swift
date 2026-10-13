@@ -2,7 +2,7 @@
 import AppKit
 import CoreGraphics
 
-// Renders the VoxStudio app icon (1024×1024, no alpha) to the path given as the
+// Renders the Sprechly Work app icon (1024×1024, no alpha) to the path given as the
 // first argument. Deep indigo→blue gradient with a centered, softly glowing
 // waveform — matches the app's dark-first accent palette.
 

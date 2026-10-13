@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct TranscriptExporterTests {
     private let exporter = TranscriptExporter()

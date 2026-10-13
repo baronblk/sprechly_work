@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Measures how long the playback engine takes to open an imported long file,
 /// to turn the reported "~30 s before playable" into a hard number.

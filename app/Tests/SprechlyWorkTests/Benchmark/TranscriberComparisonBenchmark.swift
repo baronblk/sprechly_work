@@ -5,7 +5,7 @@ import Testing
 #if !targetEnvironment(simulator)
 import UIKit
 #endif
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Phase 3: `DictationTranscriber` against the `SpeechTranscriber` the app ships.
 ///

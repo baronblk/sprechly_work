@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 /// Records how the transcription stream ended, so a test can prove the preview
 /// actually *terminates* the run instead of transcribing the whole file and

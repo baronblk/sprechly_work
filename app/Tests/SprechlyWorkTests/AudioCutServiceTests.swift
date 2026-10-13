@@ -1,5 +1,5 @@
 import Testing
-@testable import VoxStudio
+@testable import SprechlyWork
 
 struct AudioCutServiceTests {
     // window = 0.1s, minSilence = 0.3s → drops silent runs of ≥ 3 windows.
