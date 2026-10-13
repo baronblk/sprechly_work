@@ -31,14 +31,19 @@ public final class BLETransport: NSObject, DeviceTransport, @unchecked Sendable 
     private var notifyCharacteristic: CBCharacteristic?
 
     private var connectContinuation: CheckedContinuation<Void, Error>?
+    /// Warten auf freie Schreib-Warteschlange (siehe `send`).
+    private var writeReadyWaiters: [CheckedContinuation<Void, Never>] = []
     private var sinks: [UUID: AsyncStream<Data>.Continuation] = [:]
     private var isScanning = false
 
     /// Wie lange auf Gerät, Verbindung und aktivierte Notifications gewartet wird.
     public let connectTimeout: Duration
+    /// Obergrenze für das Warten auf eine freie Schreib-Warteschlange.
+    public let writeReadyTimeout: Duration
 
-    public init(connectTimeout: Duration = .seconds(20)) {
+    public init(connectTimeout: Duration = .seconds(20), writeReadyTimeout: Duration = .seconds(2)) {
         self.connectTimeout = connectTimeout
+        self.writeReadyTimeout = writeReadyTimeout
         super.init()
         central = CBCentralManager(delegate: self, queue: queue)
     }
@@ -89,7 +94,41 @@ public final class BLETransport: NSObject, DeviceTransport, @unchecked Sendable 
 
         guard let peripheral else { throw TransportError.notConnected }
         guard let characteristic else { throw TransportError.characteristicsMissing }
+
+        // CoreBluetooth **verwirft** Writes ohne Response stillschweigend,
+        // sobald seine Warteschlange voll ist. Ohne diese Prüfung gehen
+        // Befehle verloren und Tastendrücke wirken, als käme nichts an.
+        if !peripheral.canSendWriteWithoutResponse {
+            await waitUntilReadyToWrite()
+        }
         peripheral.writeValue(frame, for: characteristic, type: .withoutResponse)
+    }
+
+    /// Wartet, bis CoreBluetooth wieder senden kann – höchstens `writeReadyTimeout`,
+    /// damit ein ausbleibendes Bereitschaftssignal nicht alles blockiert.
+    private func waitUntilReadyToWrite() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    self.lock.withLock { self.writeReadyWaiters.append(continuation) }
+                }
+            }
+            group.addTask { [writeReadyTimeout] in
+                try? await Task.sleep(for: writeReadyTimeout)
+                self.resumeWriteWaiters()
+            }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private func resumeWriteWaiters() {
+        let waiters = lock.withLock {
+            let pending = writeReadyWaiters
+            writeReadyWaiters.removeAll()
+            return pending
+        }
+        for waiter in waiters { waiter.resume() }
     }
 
     public func notifications() -> AsyncStream<Data> {
@@ -208,6 +247,7 @@ extension BLETransport: CBCentralManagerDelegate {
         }
 
         for sink in sinks { sink.finish() }
+        resumeWriteWaiters()
         finishConnect(with: .failure(TransportError.connectionFailed(
             error?.localizedDescription ?? "Gerät hat die Verbindung beendet"
         )))
@@ -275,6 +315,11 @@ extension BLETransport: CBPeripheralDelegate {
         guard characteristic.isNotifying else { return }
         logger.info("Notifications aktiv – Transport bereit")
         finishConnect(with: .success(()))
+    }
+
+    /// CoreBluetooth meldet, dass wieder gesendet werden darf.
+    public func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        resumeWriteWaiters()
     }
 
     public func peripheral(

@@ -265,6 +265,13 @@ struct RecordingView: View {
     /// Derselbe Transport wie fürs Telefon, nur dass er den Work steuert.
     @ViewBuilder
     private var workTransport: some View {
+        workControls
+            .disabled(work.isSendingCommand)
+            .opacity(work.isSendingCommand ? 0.6 : 1)
+    }
+
+    @ViewBuilder
+    private var workControls: some View {
         if work.liveActivity.isRecording {
             HStack(spacing: Theme.Spacing.xxl) {
                 TransportButton(systemName: "pause.fill", size: 60, accessibilityLabel: "Work pausieren") {

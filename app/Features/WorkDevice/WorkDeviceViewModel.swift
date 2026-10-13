@@ -24,6 +24,10 @@ final class WorkDeviceViewModel {
     var runningDuration: TimeInterval = 0
     /// Zuletzt abgefragter Gerätezustand; `nil`, solange keiner vorliegt.
     var deviceInfo: D3200DeviceInfo?
+    /// Läuft, solange ein Steuerbefehl unterwegs ist – die Transport-Tasten
+    /// sperren sich so lange, damit ein zweiter Tipp nicht denselben Befehl
+    /// nochmal schickt.
+    private(set) var isSendingCommand = false
 
     private let importService: WorkImportService
     private let fileStore: RecordingFileStore
@@ -156,13 +160,39 @@ final class WorkDeviceViewModel {
         await sendRecordControl(.stop)
     }
 
+    /// Schickt einen Steuerbefehl und zeigt die erwartete Wirkung sofort an.
+    ///
+    /// Das Gerät bestätigt erst nach einem Rundlauf über BLE. Ohne die
+    /// vorweggenommene Anzeige wirkt die Taste tot und man tippt erneut –
+    /// und schickt dabei denselben Befehl mehrfach.
     private func sendRecordControl(_ action: D3200RecordAction) async {
-        guard let client else { return }
+        guard let client, !isSendingCommand else { return }
+        isSendingCommand = true
+        defer { isSendingCommand = false }
+
+        applyOptimisticState(for: action)
         do {
             try await client.sendRecordControl(action)
         } catch {
             logger.error("Record-Control fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Nimmt die Wirkung des Befehls vorweg. Die Meldung des Geräts
+    /// überschreibt das gleich darauf – sie bleibt maßgeblich.
+    private func applyOptimisticState(for action: D3200RecordAction) {
+        switch action {
+        case .start:
+            let offset = if case .paused(let elapsed) = liveActivity { elapsed } else { TimeInterval(0) }
+            liveActivity = .recording(since: Date.now.addingTimeInterval(-offset))
+            startTicking()
+        case .pause:
+            stopTicking()
+            liveActivity = .paused(elapsed: runningDuration)
+        case .stop:
+            stopTicking()
+            liveActivity = .finished(fileID: nil, duration: runningDuration)
         }
     }
 
@@ -172,7 +202,8 @@ final class WorkDeviceViewModel {
         stopTicking()
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                // Die Anzeige zeigt Hundertstel – bei 500 ms wirkte sie hakelig.
+                try? await Task.sleep(for: .milliseconds(50))
                 guard let self, case .recording(let since) = liveActivity else { return }
                 runningDuration = Date.now.timeIntervalSince(since)
             }

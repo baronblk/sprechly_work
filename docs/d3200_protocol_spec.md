@@ -372,6 +372,25 @@ danach optionale Felder: deviceColor, autoPowerOffSwitch/Index, Indicator-Lights
 **Für Sprechly Work** damit anzeigbar: Mic-Akku %, Case-Akku %, Laden ja/nein,
 Firmware-Version, Seriennummer, belegter/freier Speicher, Aufnahme-Status, Case-MAC.
 
+## 7c. Realtime-Audio-Stream (Live-Pegel + Live-Transkription)
+
+Die App steuert nur fern – das **Gerät** nimmt auf, nicht das iPhone-Mikro. Einen
+Live-Pegel oder Live-Audio gibt es daher **nur** über den Realtime-BLE-Stream:
+
+- Gestartet mit **`startTransportAudioFile` (0x1A/0x07)** und `realtimeFlag = 1`,
+  `preferSpp = false` → das Gerät schickt **während der Aufnahme** laufend
+  Opus-Slices über den Notify-Kanal (kein SoftAP).
+- Jeder Slice wird wie beim Download entschlüsselt (AES-256-CTR, §6) → 160-B-Opus-
+  Paket → Opus-Decode zu PCM16.
+- **Aufnahmepegel** = RMS/Peak der dekodierten PCM-Samples pro Frame (z. B.
+  `level = sqrt(mean(sample²))`, geglättet). Es gibt kein separates Pegel-Feld
+  im Protokoll – der Pegel wird clientseitig aus dem Live-PCM berechnet.
+- Dasselbe PCM speist die **Live-Transkription** (bei tacshi: Stream an Soniox;
+  bei Sprechly Work: an das lokale Whisper/SpeechAnalyzer).
+
+> Ohne diesen Stream gibt es systembedingt keinen Pegel – das ist ein zu bauendes
+> Feature, kein Bug.
+
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**
 Konstanten (salt/info = 010203) ableitbar; das Gerät prüft den Auth-Token nicht und
