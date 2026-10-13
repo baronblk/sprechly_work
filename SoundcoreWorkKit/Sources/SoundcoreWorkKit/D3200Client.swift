@@ -177,6 +177,16 @@ public actor D3200Client {
         logger.info("Session-Key abgeleitet")
     }
 
+    /// Steuert die Aufnahme am Gerät fern (Spec §7a).
+    ///
+    /// Die Antwort kommt als unaufgefordertes Ereignis über `events()`,
+    /// nicht als direkte Rückgabe – das Gerät meldet seinen Status auf
+    /// derselben Gruppe/Typ.
+    public func sendRecordControl(_ action: D3200RecordAction) async throws {
+        try await transport.send(D3200Commands.recordControl(action))
+        logger.info("Record-Control gesendet: \(String(describing: action), privacy: .public)")
+    }
+
     /// Schritte 6–8: Detail anfordern, Chunks sammeln, entschlüsseln.
     ///
     /// - Parameter progress: `(empfangene Bytes, erwartete Bytes)`. Die erwartete

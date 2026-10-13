@@ -88,22 +88,65 @@ final class WorkDeviceViewModel {
 
     private func handle(_ event: D3200Event) async {
         switch event {
-        case .recordingState(let fileID, let state) where state.isRecording:
-            liveActivity = .recording(fileID: fileID, startedAt: .now)
-            startTicking()
+        case .recordStatus(let status, let seconds, let fileID):
+            await apply(status: status, seconds: seconds, fileID: fileID)
 
         case .recordingState(let fileID, let state):
-            // Unbekannter Code – nicht raten, nur protokollieren.
-            logger.info("Statuscode \(state.rawValue) für \(fileID, privacy: .public)")
-
-        case .recordingFinished(let fileID, let seconds):
-            stopTicking()
-            liveActivity = .finished(fileID: fileID, duration: TimeInterval(seconds))
-            // Die Aufnahme steht jetzt in der Liste.
-            await reloadList()
+            // Kündigt nur eine neu angelegte Aufnahme an – kein Status.
+            logger.info("Neue Aufnahme \(String(format: "%08x", fileID), privacy: .public) (Code \(state.rawValue))")
 
         case .unknown(let group, let type, _):
             logger.info("Unbekanntes Ereignis grp=\(group) typ=\(type)")
+        }
+    }
+
+    private func apply(status: D3200RecordStatus, seconds: UInt32?, fileID: UInt32?) async {
+        switch status {
+        case .recording:
+            // Nach einer Pause dort weiterzählen, wo sie begann.
+            let offset = if case .paused(let elapsed) = liveActivity { elapsed } else { TimeInterval(0) }
+            liveActivity = .recording(since: Date.now.addingTimeInterval(-offset))
+            startTicking()
+
+        case .paused:
+            stopTicking()
+            liveActivity = .paused(elapsed: runningDuration)
+
+        case .stopped:
+            stopTicking()
+            runningDuration = 0
+            liveActivity = .finished(
+                fileID: fileID,
+                duration: seconds.map(TimeInterval.init) ?? 0
+            )
+            // Die Aufnahme steht jetzt in der Liste.
+            await reloadList()
+
+        default:
+            logger.info("Unbekannter Aufnahmestatus \(status.rawValue)")
+        }
+    }
+
+    // MARK: - Fernsteuerung
+
+    /// Startet eine Aufnahme am Gerät. Nach einer Pause setzt derselbe
+    /// Befehl sie fort – das Gerät leitet das aus seinem Status ab.
+    func startRecording() async {
+        await sendRecordControl(.start)
+    }
+
+    func pauseRecording() async {
+        await sendRecordControl(.pause)
+    }
+
+    /// Das Gerät kennt keinen Stop-Befehl; Stop läuft über die Taste am Work.
+    private func sendRecordControl(_ action: D3200RecordAction) async {
+        guard let client else { return }
+        do {
+            try await client.sendRecordControl(action)
+        } catch {
+            logger.error("Record-Control fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -111,12 +154,11 @@ final class WorkDeviceViewModel {
     /// Dauer, die das Gerät am Ende meldet.
     private func startTicking() {
         stopTicking()
-        runningDuration = 0
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                guard let self, case .recording(_, let startedAt) = liveActivity else { return }
-                runningDuration = Date.now.timeIntervalSince(startedAt)
+                guard let self, case .recording(let since) = liveActivity else { return }
+                runningDuration = Date.now.timeIntervalSince(since)
             }
         }
     }

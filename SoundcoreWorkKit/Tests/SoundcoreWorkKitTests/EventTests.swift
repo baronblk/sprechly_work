@@ -3,68 +3,140 @@ import Testing
 
 @testable import SoundcoreWorkKit
 
-/// Die beiden unaufgeforderten Pushes, die am Gerät beobachtet wurden
-/// (2026-10-13): Start und Ende einer Aufnahme von 11,1 s.
-@Suite("Unaufgeforderte Geräte-Ereignisse")
+/// Frames aus den Läufen am eigenen Gerät (2026-10-13): Start und Ende per
+/// Hardwaretaste sowie die Antworten auf die ferngesteuerten Befehle.
+@Suite("Geräte-Ereignisse und Record-Control")
 struct EventTests {
-    /// `09ff0000011a061200` + file_id + state + Restbyte
-    static let recordingStartedFrame = Data(hex:
-        "09ff0000011a061200" +   // Gruppe 1a, Typ 06, Länge 18
-        "369ace6a" +             // file_id LE32 = 0x6ace9a36
-        "02000000" +             // Statuscode LE32 = 2
-        "45"
+    /// Gruppe 1a, Typ 06: kündigt eine neu angelegte Aufnahme an.
+    static let newRecordingFrame = Data(hex:
+        "09ff0000011a061200" + "369ace6a" + "02000000" + "45"
     )!
 
-    /// Gruppe 18, Typ 82, Länge 20; Dauer auf Offset 11, file_id auf 15.
-    static let recordingFinishedFrame = Data(hex:
-        "09ff00000118821400" +   // Präfix, Flag, Gruppe 18, Typ 82, Länge 20, 00
-        "0001" +                 // Offset 9/10
-        "0b000000" +             // Dauer LE32 = 11 Sekunden
-        "369ace6a" +             // file_id LE32 = 0x6ace9a36
-        "cb"
+    /// Gruppe 18, Typ 82, 20 B: Stop an der Hardwaretaste.
+    /// Status 0 auf Offset 9, Dauer auf 11, file_id auf 15.
+    static let stoppedFrame = Data(hex:
+        "09ff00000118821400" + "00" + "01" + "0b000000" + "369ace6a" + "cb"
     )!
 
-    @Test("Start-Push: Typ 0x06 mit file_id und Statuscode 2")
-    func decodesRecordingStart() throws {
-        let response = try #require(RCSPFrame.Response(frame: Self.recordingStartedFrame))
-        #expect(response.group == 0x1A)
-        #expect(response.message == .recordingState)
-        #expect(response.declaredLength == 18)
+    /// Antwort auf das Start-Command (12 B, Status 1).
+    static let startAckFrame = Data(hex: "09ff0000011882" + "0c" + "00" + "01" + "9040")!
+
+    /// Antwort auf das Pause-Command (12 B, Status 2).
+    static let pauseAckFrame = Data(hex: "09ff0000011882" + "0c" + "00" + "02" + "9344")!
+
+    // MARK: - Status
+
+    @Test("Statuswerte sind am Gerät belegt")
+    func statusValues() {
+        #expect(D3200RecordStatus.stopped.rawValue == 0)
+        #expect(D3200RecordStatus.recording.rawValue == 1)
+        #expect(D3200RecordStatus.paused.rawValue == 2)
+        #expect(D3200RecordStatus.recording.isRecording)
+        #expect(D3200RecordStatus.paused.isPaused)
+        #expect(!D3200RecordStatus.stopped.isRecording)
+    }
+
+    @Test("Start-Bestätigung meldet Status 1")
+    func decodesStartAck() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.startAckFrame))
+        #expect(response.group == 0x18)
+        #expect(response.message == .recordControl)
+        #expect(response.declaredLength == 12)
         #expect(response.hasConsistentLength)
 
+        guard case .recordStatus(let status, let seconds, let fileID) =
+            try #require(D3200Event(response: response))
+        else { return #expect(Bool(false), "kein recordStatus") }
+
+        #expect(status == .recording)
+        // Die kurze Bestätigung trägt weder Dauer noch file_id.
+        #expect(seconds == nil)
+        #expect(fileID == nil)
+    }
+
+    @Test("Pause-Bestätigung meldet Status 2")
+    func decodesPauseAck() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.pauseAckFrame))
+        guard case .recordStatus(let status, _, _) =
+            try #require(D3200Event(response: response))
+        else { return #expect(Bool(false), "kein recordStatus") }
+        #expect(status == .paused)
+    }
+
+    @Test("Stop am Gerät meldet Status 0 mit Dauer und file_id")
+    func decodesStop() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.stoppedFrame))
+        #expect(response.declaredLength == 20)
+        #expect(response.hasConsistentLength)
+
+        guard case .recordStatus(let status, let seconds, let fileID) =
+            try #require(D3200Event(response: response))
+        else { return #expect(Bool(false), "kein recordStatus") }
+
+        #expect(status == .stopped)
+        // Die Liste nennt für diese Aufnahme 11,1 s – der Push rundet ab.
+        #expect(seconds == 11)
+        #expect(fileID == 0x6ACE_9A36)
+    }
+
+    // MARK: - Neue Aufnahme
+
+    @Test("Push 0x1a/0x06 kündigt eine neue Aufnahme an – kein Status")
+    func decodesNewRecording() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.newRecordingFrame))
+        #expect(response.group == 0x1A)
+        #expect(response.message == .recordingState)
+
         let event = try #require(D3200Event(response: response))
-        #expect(event == .recordingState(fileID: 0x6ACE_9A36, state: .recording))
+        #expect(event == .recordingState(fileID: 0x6ACE_9A36, state: .newRecording))
         #expect(event.fileID == 0x6ACE_9A36)
     }
 
-    @Test("Ende-Push: Typ 0x82 mit Dauer in Sekunden und file_id")
-    func decodesRecordingFinished() throws {
-        let response = try #require(RCSPFrame.Response(frame: Self.recordingFinishedFrame))
-        #expect(response.group == 0x18)
-        #expect(response.message == .recordingFinished)
-        #expect(response.declaredLength == 20)
-        #expect(response.frame.count == 20)
-        #expect(response.hasConsistentLength)
-
-        let event = try #require(D3200Event(response: response))
-        // Die Liste meldete für diese Aufnahme 11,1 s – der Push rundet auf Sekunden ab.
-        #expect(event == .recordingFinished(fileID: 0x6ACE_9A36, seconds: 11))
+    @Test("Der Code 2 dieses Pushes ist nicht der Aufnahmestatus")
+    func codeIsNotStatus() {
+        // Beide tragen die 2, meinen aber Verschiedenes: hier „neue Aufnahme",
+        // im Record-Control-Kanal „Pause".
+        #expect(D3200RecordingState.newRecording.rawValue == 2)
+        #expect(D3200RecordStatus.paused.rawValue == 2)
+        #expect(D3200RecordingState.newRecording.announcesNewRecording)
     }
 
-    @Test("Statuscode: bekannt ist nur 2 = nimmt auf")
-    func recordingStateCodes() {
-        #expect(D3200RecordingState.recording.rawValue == 2)
-        #expect(D3200RecordingState.recording.isRecording)
-        // Unbekannte Codes gehen unverändert durch, statt falsch gedeutet zu werden.
-        let unknown = D3200RecordingState(rawValue: 7)
-        #expect(!unknown.isRecording)
-        #expect(unknown.rawValue == 7)
+    // MARK: - Commands
+
+    @Test("Record-Control-Command: 11 B, Länge auf Offset 7", arguments: [
+        (D3200RecordAction.start, UInt8(0x01)),
+        (D3200RecordAction.pause, UInt8(0x02)),
+    ])
+    func buildsRecordControlCommand(action: D3200RecordAction, payload: UInt8) {
+        let frame = D3200Commands.recordControl(action)
+
+        #expect(frame.count == 11)
+        #expect(frame.prefix(4) == Data([0x08, 0xEE, 0x00, 0x00]))
+        #expect(frame[5] == 0x18)   // Gruppe
+        #expect(frame[6] == 0x82)   // Typ
+        #expect(frame[7] == 11)     // Länge = Framelänge
+        #expect(frame[9] == payload)
+        #expect(frame.last == RCSPFrame.checksum(Data(frame.dropFirst(4).dropLast())))
     }
+
+    /// Der am Gerät tatsächlich gesendete Start-Frame.
+    @Test("Start-Command entspricht dem verifizierten Frame")
+    func startCommandMatchesDevice() throws {
+        #expect(D3200Commands.recordControl(.start) == Data(hex: "08ee0000001882" + "0b" + "00" + "01" + "90"))
+        #expect(D3200Commands.recordControl(.pause) == Data(hex: "08ee0000001882" + "0b" + "00" + "02" + "93"))
+    }
+
+    @Test("Resume ist derselbe Befehl wie Start")
+    func resumeEqualsStart() {
+        #expect(D3200RecordAction.resume == .start)
+        #expect(D3200Commands.recordControl(.resume) == D3200Commands.recordControl(.start))
+    }
+
+    // MARK: - Abgrenzung
 
     @Test("Beide Push-Typen gelten als unaufgefordert")
     func unsolicitedTypes() {
-        #expect(D3200Event.unsolicitedTypes == [.recordingState, .recordingFinished])
-        // Antworten auf Befehle dürfen nicht als Ereignis gelten.
+        #expect(D3200Event.unsolicitedTypes == [.recordingState, .recordControl])
         #expect(!D3200Event.unsolicitedTypes.contains(.fileList))
         #expect(!D3200Event.unsolicitedTypes.contains(.audioChunk))
     }
@@ -75,11 +147,9 @@ struct EventTests {
         #expect(D3200Event(response: response) == nil)
     }
 
-    /// Der Typ 0x82 lag in der Spec als „`18 82` Transfer-Init" – dabei ist
-    /// 0x18 die Gruppe. Beim Download taucht der Typ nie auf.
     @Test("0x18 ist die Gruppe, nicht der Typ")
     func groupIsNotType() throws {
-        let response = try #require(RCSPFrame.Response(frame: Self.recordingFinishedFrame))
+        let response = try #require(RCSPFrame.Response(frame: Self.stoppedFrame))
         #expect(response.group == 0x18)
         #expect(response.type == 0x82)
         #expect(D3200Message(rawValue: 0x18) == nil)

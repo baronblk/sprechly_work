@@ -259,12 +259,73 @@ Die Aufnahme wird über **cmdType `0x18`, cmdId `0x82`** ferngesteuert (Payload 
 | **Resume** | 0x18 / 0x82 | `01` | identisch zu Start; Gerät erkennt Resume daran, dass der vorige Status 2 (pause) war |
 | **Stop** | — | — | **kein eigener App-Befehl im Repo**; Stop kommt per Hardware-Taste bzw. das Gerät meldet Status 0. Noch offen, ob ein Stop-Command existiert → ggf. per Capture. |
 
-**Status-Notification vom Gerät** (Opcode `0x18/0x82`, alternativ `0x1A/0x06`):
-`status 0 = stop, 1 = recording, 2 = pause`, optional mit `fileId` und `durationSec`.
-Die App pollt zusätzlich Device-Info für das Recording-Bit.
+### Am eigenen Gerät verifiziert (2026-10-13)
+
+Die Befehle wurden gesendet und das Gerät hat reagiert – damit sind sie Fakt,
+nicht übernommene Annahme:
+
+```
+→ 08 ee 00 00 00 18 82 0b 00 01 90      Start
+← 09 ff 00 00 01 18 82 0c 00 01 90 40   status = 1 (läuft)
+← 09 ff 00 00 01 1a 06 12 00 58a1ce6a 02000000 6e   neue Aufnahme angelegt
+
+→ 08 ee 00 00 00 18 82 0b 00 02 93      Pause
+← 09 ff 00 00 01 18 82 0c 00 02 93 44   status = 2 (Pause)
+```
+
+Der Command trägt die Framelänge auf Offset 7 (`0x0b` = 11) wie jeder andere
+Command auch; das Nutzbyte steht auf Offset 9.
+
+**Status-Notification vom Gerät** (`0x18/0x82`): Das Statusbyte steht auf
+**Offset 9**. `0 = stop, 1 = recording, 2 = pause`. Nur die Stop-Meldung des
+Geräts ist mit 20 B lang genug, um danach `durationSec` (Offset 11) und
+`fileId` (Offset 15) zu tragen; die Bestätigung eines eigenen Befehls ist
+12 B lang und trägt beides nicht.
+
+> **Korrektur gegenüber der Repo-Angabe:** `0x1A/0x06` ist **nicht** der
+> Statuskanal. Diese Nachricht kündigt eine **neu angelegte Aufnahme** an und
+> trug in allen Beobachtungen den Code `2` – auch während das Gerät lief.
+> Wer `2` dort als „pause" liest, bekommt beim Start einen Pause-Zustand
+> angezeigt. Der Status kommt ausschließlich aus `0x18/0x82`.
 
 > Korrektur: Der im eigenen Capture als „Transfer init" notierte Opcode `18 82`
 > ist in Wahrheit **Audio/Record-Control**.
+
+## 7b. Geräte-Metadaten (Status-Notifications) – aus Repo verifiziert
+
+Das Gerät meldet/liefert folgende Metadaten über cmdType `0x01` (Device-Info-Familie)
+und verwandte Opcodes. Die App pollt zusätzlich alle ~15 s Device-Info, da manche
+Firmwares nur auf Abfrage aktualisieren.
+
+### Battery (cmdId `0x03`), payload ≥ 2 Byte
+- `payload[0]` = Mic/Gerät-Akku, `payload[1]` = Ladecase-Akku.
+- Werte sind **0–9 Buckets**, nicht direkt Prozent. Umrechnung:
+  `prozent = raw <= 9 ? (raw + 1) * 10 : raw` (0→10 %, 9→100 %).
+
+### Charging (cmdId `0x04`), payload ≥ 2 Byte
+- `payload[0]` = Gerät lädt (1/0), `payload[1]` = Ladecase lädt (1/0).
+
+### Volles Device-Info (cmdId `0x01`) – sequенziell geparst
+Reihenfolge der Felder im Payload:
+`batteryRaw(1) · chargingStatus(1) · firmware(5 ASCII) · serial(16 ASCII) ·
+totalMemoryKB(u32 LE) · freeMemoryKB(u32 LE) · boxChargingFlag(1) ·
+boxFirmware(5 ASCII) · boxBatteryRaw(1) · boxMac(6)` –
+danach optionale Felder: deviceColor, autoPowerOffSwitch/Index, Indicator-Lights,
+**recording-Bit**, WLAN-Firmware.
+- Speicher: KB-Einheit (ein 64-GB-Gerät meldet ~60 Mio. KB). `used = total − free`.
+- MAC-Filter: `21:21:…` oder `00:00:…` = Padding/ungültig → verwerfen.
+
+### Weitere Status-Pushes
+| Opcode | Bedeutung |
+|--------|-----------|
+| `0x18/0x82` | Record-Status: `payload[0]` 0=stop, 1=recording/resume, 2=pause; bei stop optional `durationSec` u32 @payload[1] |
+| `0x1A/0x06` | neue Datei während Aufnahme: status=recording + `fileId` (LE) @payload[0] |
+| `0x0B/0x87` | Bind-/Unbind-Ergebnis (Erfolg = low nibble des Status) |
+| `0x0B/0x88` | Geräte-Bestätigung nach Bind |
+| `0x2E/0x01` | ECDH-RX: devPub = `raw[9:74]` (65 B), zusätzliches Material `raw[74:106]` |
+
+**Für Sprechly Work** damit anzeigbar: Mic-Akku %, Case-Akku %, Laden ja/nein,
+Firmware-Version, Seriennummer, belegter/freier Speicher, Aufnahme-Status, Case-MAC.
 
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**
@@ -284,28 +345,32 @@ die Notify-Characteristic. Darauf beruht die Live-Anzeige in der App.
 Am eigenen Gerät über vier Monitor-Läufe (~6 min) mit je drei Start/Stop-Zyklen
 verifiziert (2026-10-13).
 
-### Aufnahme gestartet — Gruppe `1a`, Typ `06`, 18 B
+> Siehe §7a: der Aufnahme**status** kommt aus `0x18/0x82`. Die hier
+> beschriebene Nachricht `1a/06` meldet nur, dass eine neue Aufnahme
+> angelegt wurde.
+
+### Neue Aufnahme angelegt — Gruppe `1a`, Typ `06`, 18 B
 ```
 09 ff 00 00 01 1a 06 12 00 | c7 9b ce 6a | 02 00 00 00 | d7
   0 .. 8                   | file_id @9  | code @13    | Rest
 ```
 - `file_id = LE32(data[9:13])` – die ID der **neu entstehenden** Aufnahme.
-- `code = LE32(data[13:17])` – in allen Beobachtungen **2**. Ein anderer Wert
-  ist nie aufgetreten, daher ist die Bedeutung als Zustandsraum nicht belegt;
-  die Implementierung reicht unbekannte Codes unverändert durch.
+- `code = LE32(data[13:17])` – in allen Beobachtungen **2**, auch während das
+  Gerät aufnahm. Das ist **nicht** der Aufnahmestatus (siehe §7a).
 
 ### Aufnahme beendet — Gruppe `18`, Typ `82`, 20 B
+Das ist die Stop-Meldung des Record-Control-Kanals (§7a) mit `status = 0`.
 ```
-09 ff 00 00 01 18 82 14 00 00 01 | 14 00 00 00 | c7 9b ce 6a | 66
-  0 .. 10                        | dauer_s @11 | file_id @15 | Rest
+09 ff 00 00 01 18 82 14 00 | 00 | 01 | 14 00 00 00 | c7 9b ce 6a | 66
+  0 .. 8                   |stat| ?  | dauer_s @11 | file_id @15 | Rest
 ```
 - `dauer_s = LE32(data[11:15])` – Dauer in **ganzen Sekunden** (abgerundet).
   Gegenprobe: Push meldete 11 s, die Dateiliste für dieselbe Aufnahme 11,1 s.
 - `file_id = LE32(data[15:19])` – dieselbe ID wie im Start-Push.
 
 ### Verhalten des Geräts
-- **Pause ist über BLE unsichtbar.** Das Gerät hat eine Pause-Funktion, aber
-  sie erzeugt **kein** Ereignis. Verifiziert mit der Sequenz
+- **Pause an der Hardwaretaste ist über BLE unsichtbar** – anders als eine
+  ferngesteuerte Pause, die der Status quittiert (§7a). Verifiziert mit der Sequenz
   Start → Pause → Weiter → Stop: es kam nur ein Start-Push (48,6 s) und ein
   Ende-Push (81,3 s) mit **derselben** `file_id`, und in der Dateiliste stand
   danach **eine** Aufnahme (`6ace9c87`, 35,4 s). Pause/Weiter bleibt also

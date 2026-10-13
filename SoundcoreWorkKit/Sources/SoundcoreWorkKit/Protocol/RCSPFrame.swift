@@ -89,13 +89,16 @@ public enum D3200Message: UInt8, Sendable, CaseIterable {
     case transferComplete = 0x0A
     /// Dateilisten-Antwort; Länge wächst mit der Anzahl Einträge.
     case fileList = 0x0E
-    /// Unaufgefordertes Ereignis am **Ende** einer Aufnahme (Gruppe 0x18):
-    /// trägt Dauer und `file_id` der gerade fertiggestellten Aufnahme.
+    /// Record-Control (Gruppe 0x18): in beide Richtungen.
     ///
-    /// Die Spec führte dies als „`18 82` Transfer-Init" – das war eine
-    /// Fehldeutung: `0x18` ist die Gruppe, `0x82` der Typ. Beim Download
-    /// taucht die Nachricht nicht auf.
-    case recordingFinished = 0x82
+    /// Als Command steuert sie die Aufnahme fern, als Nachricht meldet das
+    /// Gerät seinen Aufnahmestatus auf Offset 9. Am Gerät verifiziert:
+    /// Start → `01`, Pause → `02`, Ende an der Hardwaretaste → `00` plus
+    /// Dauer und `file_id`.
+    ///
+    /// Die Spec führte dies als „`18 82` Transfer-Init" – eine Fehldeutung:
+    /// `0x18` ist die Gruppe, `0x82` der Typ.
+    case recordControl = 0x82
     /// Time-Sync bestätigt.
     case timeSync = 0xA6
 }
@@ -107,8 +110,8 @@ public extension D3200Message {
         case .audioChunk: 12          // davor: Frame-Zähler auf 9, Füllbytes 10/11
         case .fileList: 11            // davor: Eintragszähler LE16 auf 9/10
         case .transferComplete: 10
-        case .recordingState: 9       // file_id LE32, danach Statuscode LE32
-        case .recordingFinished: 11   // Dauer in Sekunden LE32, danach file_id LE32
+        case .recordingState: 9       // file_id LE32, danach ein Code (immer 2)
+        case .recordControl: 9        // Statusbyte, bei einem Stop danach Dauer und file_id
         case .keyExchange, .auth, .fileDetail, .timeSync: 8
         }
     }

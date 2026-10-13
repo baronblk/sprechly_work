@@ -21,11 +21,32 @@ struct WorkDeviceTests {
 
     /// Das Gerät meldet nur Start und Ende; einen Pause-Zustand gibt es
     /// bewusst nicht, weil er über Bluetooth nicht erkennbar ist.
-    @Test("Live-Status kennt genau drei Fälle")
+    /// Alle vier Zustände stammen aus dem Statusbyte, das am Gerät
+    /// verifiziert ist (0 = stop, 1 = läuft, 2 = pause).
+    @Test("Live-Status unterscheidet laufend, pausiert und fertig")
     func liveActivity() {
-        #expect(WorkLiveActivity.recording(fileID: 1, startedAt: .now).isRecording)
-        #expect(!WorkLiveActivity.idle.isRecording)
-        #expect(!WorkLiveActivity.finished(fileID: 1, duration: 5).isRecording)
+        #expect(WorkLiveActivity.recording(since: .now).isRecording)
+        #expect(WorkLiveActivity.recording(since: .now).isActive)
+
+        #expect(WorkLiveActivity.paused(elapsed: 12).isPaused)
+        #expect(WorkLiveActivity.paused(elapsed: 12).isActive)
+        #expect(!WorkLiveActivity.paused(elapsed: 12).isRecording)
+
+        #expect(!WorkLiveActivity.idle.isActive)
+        #expect(!WorkLiveActivity.finished(fileID: 1, duration: 5).isActive)
+
+        #expect(!WorkLiveActivity.idle.label.isEmpty)
+        #expect(WorkLiveActivity.paused(elapsed: 1).label != WorkLiveActivity.recording(since: .now).label)
+    }
+
+    /// Resume ist derselbe Befehl wie Start – darum gibt es in der UI keinen
+    /// eigenen Resume-Zustand jenseits von `paused`.
+    @Test("Fernsteuerung kennt nur Start und Pause")
+    func remoteControlActions() {
+        #expect(D3200RecordAction.allCases.count == 2)
+        #expect(D3200RecordAction.resume == .start)
+        #expect(D3200RecordAction.start.rawValue == 0x01)
+        #expect(D3200RecordAction.pause.rawValue == 0x02)
     }
 
     // MARK: - Listeneinträge

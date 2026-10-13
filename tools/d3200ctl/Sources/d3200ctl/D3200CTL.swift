@@ -33,6 +33,22 @@ enum D3200CTL {
             try await client.syncTime()
             note("Zeit synchronisiert")
 
+            if command == "record" {
+                let action: D3200RecordAction
+                switch requestedID {
+                case "start", "resume", nil: action = .start
+                case "pause": action = .pause
+                default:
+                    note("'\(requestedID ?? "")' ist weder start, resume noch pause")
+                    await finish(client, transport, code: 1)
+                }
+                note("sende Record-Control \(action) …")
+                try await client.sendRecordControl(action)
+                note("gesendet – lausche \(seconds) s auf die Antwort des Geräts")
+                try await monitor(transport: transport, seconds: seconds)
+                await finish(client, transport, code: 0)
+            }
+
             if command == "monitor" {
                 note("lausche \(seconds) s auf unaufgeforderte Frames.")
                 note("Drücke JETZT am Work die Aufnahmetaste, sprich kurz, stoppe wieder.")
@@ -199,6 +215,8 @@ enum D3200CTL {
       d3200ctl pull [<file-id-hex>]    dazu ECDH + Download; ohne ID die neueste
       d3200ctl monitor                 lauscht auf unaufgeforderte Frames
                                        (Aufnahme-Start/-Stop, Tasten, Status)
+      d3200ctl record start|pause      steuert die Aufnahme fern und zeigt,
+                                       was das Gerät daraufhin meldet
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)

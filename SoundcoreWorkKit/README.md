@@ -29,7 +29,8 @@ ffprobe codec=opus  48000 Hz  stereo  0,9 s
 | `BLETransport` (§1/§3) | ✅ am Gerät (Scan, Connect, Notify, MTU) |
 | `D3200Client`-Sequenz (§3) | ✅ am Gerät, voller Download |
 | Live-Ereignisse Start/Ende (§9) | ✅ am Gerät, 3 Zyklen reproduziert |
-| Akkustand / Gerätestatus | ❌ Gerät pusht ihn nicht, Abfrage-Command unbekannt |
+| Fernsteuerung Start/Pause (§7a) | ✅ am Gerät gesendet und quittiert |
+| Akkustand / Gerätestatus | ❌ Gerät pusht ihn nicht, Abfrage-Command ungetestet |
 | Schrittweite der Listen-Einträge | ⚠️ offen – siehe unten |
 
 ```bash
@@ -109,11 +110,21 @@ Task {
 }
 ```
 
-**Pause ist über BLE unsichtbar.** Das Gerät kann pausieren, meldet es aber
-nicht: bei Start → Pause → Weiter → Stop kamen nur ein Start- und ein
-Ende-Push mit derselben `file_id`, und die Liste zeigte danach **eine**
-Aufnahme (35,4 s). Die App kann deshalb „läuft" und „fertig" anzeigen, aber
-keinen Pause-Zustand – eine Pause-Anzeige wäre geraten.
+### Fernsteuerung
+
+```swift
+try await client.sendRecordControl(.start)   // startet, nach einer Pause: fortsetzen
+try await client.sendRecordControl(.pause)
+```
+
+Das Gerät quittiert auf demselben Kanal mit `.recordStatus`; der Status steht
+auf Offset 9 (`0` stop, `1` läuft, `2` Pause) und ist am Gerät verifiziert.
+**Einen Stop-Befehl gibt es nicht** – Stop läuft über die Taste am Work, das
+Gerät meldet dann Status 0 mit Dauer und `file_id`.
+
+Eine Pause **an der Hardwaretaste** bleibt unsichtbar: dabei kommt kein
+Ereignis, und Start → Pause → Weiter → Stop ergab eine einzige Aufnahme
+(35,4 s). Nur die ferngesteuerte Pause wird quittiert.
 
 ### Noch offen
 
@@ -121,9 +132,11 @@ keinen Pause-Zustand – eine Pause-Anzeige wäre geraten.
 Frame, und ein Abfrage-Command steht nicht in der Spec. Das lässt sich nur
 durch Durchprobieren unbekannter Command-Bytes klären.
 
-**Statuscodes des Start-Pushes.** Der Code war in allen Beobachtungen `2`.
-Ob es weitere Werte gibt, ist offen – unbekannte Codes gehen daher
-unverändert durch.
+**Stop per Befehl.** Im Community-Katalog gibt es keinen Stop-Command. Ob das
+Gerät einen kennt, ist offen.
+
+**Der Code des `1a/06`-Pushes.** Immer `2`, auch während der Aufnahme. Er ist
+**nicht** der Aufnahmestatus – wer ihn so liest, zeigt beim Start „Pause" an.
 
 ## Sicherheits-Hinweis
 

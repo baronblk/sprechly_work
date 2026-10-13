@@ -20,21 +20,40 @@ enum WorkConnectionStatus: Equatable, Sendable {
     }
 }
 
-/// Was am Gerät gerade passiert – gespeist aus den unaufgeforderten Pushes.
+/// Was am Gerät gerade passiert – gespeist aus dem Record-Control-Kanal.
 ///
-/// Das Gerät meldet nur Start und Ende. Eine Pause am Gerät erzeugt **kein**
-/// Ereignis, deshalb gibt es hier bewusst keinen Pause-Zustand: er wäre geraten.
+/// Alle drei Zustände sind am Gerät verifiziert (Statusbyte 0/1/2). Die
+/// Fernsteuerung kann sie auch selbst auslösen.
 enum WorkLiveActivity: Equatable, Sendable {
     case idle
-    /// Am Gerät läuft eine Aufnahme. `startedAt` ist der Empfang des Pushes –
-    /// das Gerät beginnt rund 2 s früher, daher ist diese Zeit nur eine Anzeige.
-    case recording(fileID: UInt32, startedAt: Date)
-    /// Gerade fertig geworden; die maßgebliche Dauer kommt vom Gerät.
-    case finished(fileID: UInt32, duration: TimeInterval)
+    /// Es läuft eine Aufnahme. `since` ist der Empfang der Statusmeldung –
+    /// das Gerät beginnt rund 2 s früher, die Zeit ist also eine Anzeige.
+    case recording(since: Date)
+    /// Aufnahme pausiert; `elapsed` friert die bis dahin gelaufene Zeit ein.
+    case paused(elapsed: TimeInterval)
+    /// Gerade beendet; die Dauer meldet das Gerät.
+    case finished(fileID: UInt32?, duration: TimeInterval)
 
     var isRecording: Bool {
         if case .recording = self { return true }
         return false
+    }
+
+    var isPaused: Bool {
+        if case .paused = self { return true }
+        return false
+    }
+
+    /// Ob gerade eine Aufnahme offen ist (läuft oder pausiert).
+    var isActive: Bool { isRecording || isPaused }
+
+    var label: String {
+        switch self {
+        case .idle: String(localized: "Bereit")
+        case .recording: String(localized: "Aufnahme läuft")
+        case .paused: String(localized: "Pausiert")
+        case .finished: String(localized: "Aufnahme fertig")
+        }
     }
 }
 

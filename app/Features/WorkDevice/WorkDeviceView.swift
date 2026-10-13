@@ -95,48 +95,36 @@ struct WorkDeviceView: View {
 
     // MARK: - Live-Status
 
-    /// Zeigt, was am Gerät gerade passiert. Das Gerät meldet nur Start und
-    /// Ende – eine Pause am Gerät ist über Bluetooth nicht erkennbar.
+    /// Zeigt, was am Gerät gerade passiert, und steuert es fern.
+    ///
+    /// Stop fehlt bewusst: das Gerät kennt dafür keinen Befehl, Stop läuft
+    /// über die Taste am Work.
     @ViewBuilder private var liveCard: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            switch viewModel.liveActivity {
-            case .idle:
-                HStack(spacing: Theme.Spacing.sm) {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                    Text("Warte auf das Gerät – drücke am Work die Aufnahmetaste.")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-
-            case .recording(_, _):
-                HStack(spacing: Theme.Spacing.sm) {
-                    Circle()
-                        .fill(Theme.Colors.destructive)
-                        .frame(width: 12, height: 12)
-                        .symbolEffect(.pulse)
-                    Text("Aufnahme läuft")
-                        .font(Theme.Font.rowTitle)
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    Spacer()
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.sm) {
+                statusIndicator
+                Text(viewModel.liveActivity.label)
+                    .font(Theme.Font.rowTitle)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Spacer()
+                if viewModel.liveActivity.isActive {
                     Text(TimeFormatting.timecode(viewModel.runningDuration))
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(Theme.Colors.accent)
                         .monospacedDigit()
-                }
-                Text("Die Zeit ist eine Schätzung; die genaue Dauer meldet das Gerät am Ende.")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-
-            case .finished(_, let duration):
-                HStack(spacing: Theme.Spacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
+                } else if case .finished(_, let duration) = viewModel.liveActivity {
+                    Text(TimeFormatting.timecode(duration))
+                        .font(.system(.body, design: .monospaced))
                         .foregroundStyle(Theme.Colors.success)
-                    Text("Aufnahme fertig – \(TimeFormatting.timecode(duration))")
-                        .font(Theme.Font.rowTitle)
-                        .foregroundStyle(Theme.Colors.textPrimary)
+                        .monospacedDigit()
                 }
             }
+
+            controls
+
+            Text(hintText)
+                .font(.caption2)
+                .foregroundStyle(Theme.Colors.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.Spacing.md)
@@ -146,15 +134,61 @@ struct WorkDeviceView: View {
                 : Theme.Colors.surface,
             in: RoundedRectangle(cornerRadius: Theme.Radius.lg)
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(liveAccessibilityLabel)
+        .accessibilityElement(children: .contain)
     }
 
-    private var liveAccessibilityLabel: Text {
+    @ViewBuilder private var statusIndicator: some View {
         switch viewModel.liveActivity {
-        case .idle: Text("Gerät bereit, keine Aufnahme")
-        case .recording: Text("Aufnahme läuft seit \(TimeFormatting.timecode(viewModel.runningDuration))")
-        case .finished(_, let duration): Text("Aufnahme fertig, Dauer \(TimeFormatting.timecode(duration))")
+        case .recording:
+            Circle().fill(Theme.Colors.destructive).frame(width: 12, height: 12)
+        case .paused:
+            Image(systemName: "pause.circle.fill").foregroundStyle(Theme.Colors.accent)
+        case .finished:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Colors.success)
+        case .idle:
+            Circle().fill(Theme.Colors.textSecondary).frame(width: 10, height: 10)
+        }
+    }
+
+    /// Start, Pause und Fortsetzen – genau die Befehle, die das Gerät kennt.
+    @ViewBuilder private var controls: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            if viewModel.liveActivity.isRecording {
+                Button {
+                    Task { await viewModel.pauseRecording() }
+                } label: {
+                    Label { Text("Pause") } icon: { Image(systemName: "pause.fill") }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(Text("Aufnahme am Gerät pausieren"))
+            } else if viewModel.liveActivity.isPaused {
+                Button {
+                    Task { await viewModel.startRecording() }
+                } label: {
+                    Label { Text("Fortsetzen") } icon: { Image(systemName: "play.fill") }
+                }
+                .buttonStyle(.goldProminent)
+                .accessibilityLabel(Text("Aufnahme am Gerät fortsetzen"))
+            } else {
+                Button {
+                    Task { await viewModel.startRecording() }
+                } label: {
+                    Label { Text("Aufnahme starten") } icon: { Image(systemName: "record.circle") }
+                }
+                .buttonStyle(.goldProminent)
+                .accessibilityLabel(Text("Aufnahme am Gerät starten"))
+            }
+        }
+    }
+
+    private var hintText: LocalizedStringKey {
+        switch viewModel.liveActivity {
+        case .idle:
+            "Starte hier oder direkt am Work. Stoppen geht nur über die Taste am Gerät."
+        case .recording, .paused:
+            "Die Zeit ist eine Schätzung; die genaue Dauer meldet das Gerät am Ende. Stoppen über die Taste am Work."
+        case .finished:
+            "Die Aufnahme steht jetzt in der Liste unten."
         }
     }
 

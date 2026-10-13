@@ -44,6 +44,20 @@ public enum D3200Commands {
         return RCSPFrame.command(payload: payload)
     }
 
+    /// Fernsteuerung der Aufnahme am Gerät.
+    ///
+    /// Gruppe `0x18`, Typ `0x82` mit einem Nutzbyte – aus dem Community-Repo
+    /// (siehe `docs/d3200_protocol_spec.md` §7a). Das Gerät meldet auf
+    /// derselben Gruppe/Typ seinen Status zurück.
+    ///
+    /// Es gibt dort **kein** Stop-Command; Stop läuft über die Hardwaretaste.
+    public static func recordControl(_ action: D3200RecordAction) -> Data {
+        // Offset 7 trägt die Framelänge, wie bei den übrigen Commands.
+        var payload = Data([0x00, 0x18, 0x82, 0x0B, 0x00])
+        payload.append(action.rawValue)
+        return RCSPFrame.command(payload: payload)
+    }
+
     /// ECDH-Handshake – eigener Public Key als 64 Byte `X‖Y` big-endian.
     public static func keyExchange(publicKey: Data) -> Data {
         precondition(publicKey.count == 64, "P-256-Public-Key muss 64 Byte X‖Y sein")
