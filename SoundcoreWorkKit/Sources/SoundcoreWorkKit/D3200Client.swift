@@ -72,6 +72,9 @@ public actor D3200Client {
     private var waiter: CheckedContinuation<Data, Error>?
     private var waitGeneration = 0
     private var eventSinks: [UUID: AsyncStream<D3200Event>.Continuation] = [:]
+    /// Serialisiert ganze Befehlsfolgen (siehe `runExclusively`).
+    private var isRunningCommand = false
+    private var commandQueue: [CheckedContinuation<Void, Never>] = []
     private var streamDidEnd = false
     private var sessionKey: Data?
 
@@ -135,46 +138,54 @@ public actor D3200Client {
 
     /// Schritt 2: Auth mit statischem Token.
     public func authenticate() async throws {
-        try await transport.send(D3200Commands.auth())
-        _ = try await nextMessage(expecting: [.auth])
+        try await runExclusively {
+            try await transport.send(D3200Commands.auth())
+            _ = try await nextMessage(expecting: [.auth])
+        }
     }
 
     /// Schritt 3: Time-Sync.
     public func syncTime(date: Date = Date()) async throws {
-        try await transport.send(D3200Commands.timeSync(date: date))
-        _ = try await nextMessage(expecting: [.timeSync])
+        try await runExclusively {
+            try await transport.send(D3200Commands.timeSync(date: date))
+            _ = try await nextMessage(expecting: [.timeSync])
+        }
     }
 
     /// Schritt 4: Dateiliste, paginiert bis zur ersten leeren Seite.
     public func listRecordings(maxPages: Int = 16) async throws -> [D3200Recording] {
-        var recordings: [D3200Recording] = []
-        for page in 0 ..< maxPages {
-            try await transport.send(D3200Commands.listFiles(page: UInt8(truncatingIfNeeded: page)))
-            let response = try await nextMessage(expecting: [.fileList])
-            let items = D3200Recording.parseList(response: response.frame)
-            // Eine leere Seite beendet die Liste.
-            if items.isEmpty { break }
-            recordings.append(contentsOf: items)
+        try await runExclusively {
+            var recordings: [D3200Recording] = []
+            for page in 0 ..< maxPages {
+                try await transport.send(D3200Commands.listFiles(page: UInt8(truncatingIfNeeded: page)))
+                let response = try await nextMessage(expecting: [.fileList])
+                let items = D3200Recording.parseList(response: response.frame)
+                // Eine leere Seite beendet die Liste.
+                if items.isEmpty { break }
+                recordings.append(contentsOf: items)
+            }
+            logger.info("\(recordings.count) Aufnahmen gelistet")
+            return recordings
         }
-        logger.info("\(recordings.count) Aufnahmen gelistet")
-        return recordings
     }
 
     /// Schritt 5: ECDH-Handshake. Muss **vor** der ersten Detail-Anforderung laufen,
     /// sonst stößt diese sofort den Download an und verschluckt die Handshake-Antwort.
     public func performKeyExchange() async throws {
-        let privateKey = D3200Crypto.makeKeyPair()
-        try await transport.send(
-            D3200Commands.keyExchange(publicKey: D3200Crypto.rawPublicKey(privateKey))
-        )
-        let response = try await nextMessage(expecting: [.keyExchange])
-        let devicePublicKey = try D3200Crypto.parseDevicePublicKey(from: response.frame)
-        let shared = try D3200Crypto.sharedSecret(
-            privateKey: privateKey,
-            devicePublicKey: devicePublicKey
-        )
-        sessionKey = try D3200Crypto.sessionKey(sharedSecret: shared)
-        logger.info("Session-Key abgeleitet")
+        try await runExclusively {
+            let privateKey = D3200Crypto.makeKeyPair()
+            try await transport.send(
+                D3200Commands.keyExchange(publicKey: D3200Crypto.rawPublicKey(privateKey))
+            )
+            let response = try await nextMessage(expecting: [.keyExchange])
+            let devicePublicKey = try D3200Crypto.parseDevicePublicKey(from: response.frame)
+            let shared = try D3200Crypto.sharedSecret(
+                privateKey: privateKey,
+                devicePublicKey: devicePublicKey
+            )
+            sessionKey = try D3200Crypto.sessionKey(sharedSecret: shared)
+            logger.info("Session-Key abgeleitet")
+        }
     }
 
     /// Fragt den Gerätezustand ab: Akku, Laden, Firmware, Seriennummer,
@@ -183,19 +194,23 @@ public actor D3200Client {
     /// Manche Firmwares aktualisieren nur auf Abfrage – für eine Live-Anzeige
     /// regelmäßig aufrufen (die Hersteller-App pollt rund alle 15 s).
     public func fetchDeviceInfo() async throws -> D3200DeviceInfo {
-        try await transport.send(D3200Commands.deviceInfo())
-        let response = try await nextMessage(expecting: [.deviceInfo])
-        return try D3200DeviceInfo(response: response.frame)
+        try await runExclusively {
+            try await transport.send(D3200Commands.deviceInfo())
+            let response = try await nextMessage(expecting: [.deviceInfo])
+            return try D3200DeviceInfo(response: response.frame)
+        }
     }
 
     /// Nur die beiden Akkustände (kürzere Antwort als die volle Geräte-Info).
     public func fetchBattery() async throws -> D3200PowerStatus {
-        try await transport.send(D3200Commands.battery())
-        let response = try await nextMessage(expecting: [.battery])
-        guard let status = D3200PowerStatus(response: response.frame) else {
-            throw ClientError.unexpectedMessage(group: response.group, type: response.type)
+        try await runExclusively {
+            try await transport.send(D3200Commands.battery())
+            let response = try await nextMessage(expecting: [.battery])
+            guard let status = D3200PowerStatus(response: response.frame) else {
+                throw ClientError.unexpectedMessage(group: response.group, type: response.type)
+            }
+            return status
         }
-        return status
     }
 
     /// Schickt eine Abfrage ohne Nutzdaten; die Antwort kommt über `events()`
@@ -222,57 +237,59 @@ public actor D3200Client {
         fileID: UInt32,
         progress: (@Sendable (Int, Int) -> Void)? = nil
     ) async throws -> D3200Download {
-        guard let sessionKey else { throw ClientError.keyExchangeMissing }
+        try await runExclusively {
+            guard let sessionKey else { throw ClientError.keyExchangeMissing }
 
-        try await transport.send(D3200Commands.fileDetail(fileID: fileID))
+            try await transport.send(D3200Commands.fileDetail(fileID: fileID))
 
-        let headerMessage = try await nextMessage(expecting: [.fileDetail])
-        let header = try D3200FileHeader(response: headerMessage.frame)
-        let fileKey = try D3200Crypto.unwrapFileKey(header: header, sessionKey: sessionKey)
-        logger.info("File-Key entpackt (file_id=\(header.fileID), size=\(header.fileSize))")
+            let headerMessage = try await nextMessage(expecting: [.fileDetail])
+            let header = try D3200FileHeader(response: headerMessage.frame)
+            let fileKey = try D3200Crypto.unwrapFileKey(header: header, sessionKey: sessionKey)
+            logger.info("File-Key entpackt (file_id=\(header.fileID), size=\(header.fileSize))")
 
-        var raw = Data()
-        var chunkIndex = 0
-        collect: while true {
-            let response = try await nextMessage(expecting: [.audioChunk, .transferComplete])
-            switch response.message {
-            case .audioChunk:
-                // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
-                // Byte breit und läuft nach 256 Frames über.
-                let expected = UInt8(truncatingIfNeeded: chunkIndex)
-                if let sequence = Self.chunkSequence(of: response.frame), sequence != expected {
-                    throw ClientError.chunkOutOfOrder(expected: expected, got: sequence)
+            var raw = Data()
+            var chunkIndex = 0
+            collect: while true {
+                let response = try await nextMessage(expecting: [.audioChunk, .transferComplete])
+                switch response.message {
+                case .audioChunk:
+                    // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
+                    // Byte breit und läuft nach 256 Frames über.
+                    let expected = UInt8(truncatingIfNeeded: chunkIndex)
+                    if let sequence = Self.chunkSequence(of: response.frame), sequence != expected {
+                        throw ClientError.chunkOutOfOrder(expected: expected, got: sequence)
+                    }
+                    raw.append(Self.audioPayload(from: response.frame))
+                    chunkIndex += 1
+                    progress?(raw.count, header.expectedRawBytes)
+                case .transferComplete:
+                    let size = response.frame.littleEndianUInt32(at: D3200Message.transferComplete.payloadOffset)
+                    logger.info("Transfer fertig, Gerät meldet Größe \(size ?? 0)")
+                    break collect
+                default:
+                    continue  // transferInit – nur eine Ankündigung
                 }
-                raw.append(Self.audioPayload(from: response.frame))
-                chunkIndex += 1
-                progress?(raw.count, header.expectedRawBytes)
-            case .transferComplete:
-                let size = response.frame.littleEndianUInt32(at: D3200Message.transferComplete.payloadOffset)
-                logger.info("Transfer fertig, Gerät meldet Größe \(size ?? 0)")
-                break collect
-            default:
-                continue  // transferInit – nur eine Ankündigung
             }
-        }
 
-        guard raw.count % D3200Crypto.rawFrameSize == 0, !raw.isEmpty else {
-            throw ClientError.incompleteAudio(bytes: raw.count)
-        }
-        // Der File-Header gibt die Frameanzahl vor; damit fällt ein abgebrochener
-        // Transfer auf, statt eine zu kurze Aufnahme zu liefern.
-        guard raw.count == header.expectedRawBytes else {
-            throw ClientError.truncatedTransfer(got: raw.count, expected: header.expectedRawBytes)
-        }
+            guard raw.count % D3200Crypto.rawFrameSize == 0, !raw.isEmpty else {
+                throw ClientError.incompleteAudio(bytes: raw.count)
+            }
+            // Der File-Header gibt die Frameanzahl vor; damit fällt ein abgebrochener
+            // Transfer auf, statt eine zu kurze Aufnahme zu liefern.
+            guard raw.count == header.expectedRawBytes else {
+                throw ClientError.truncatedTransfer(got: raw.count, expected: header.expectedRawBytes)
+            }
 
-        // Die Chunks sind exakt das gespeicherte Rohformat, daher derselbe
-        // Entschlüsselungsweg wie im Offline-Test gegen die Fixtures.
-        let packets = try D3200Crypto.decryptRawStream(
-            raw,
-            fileKey: fileKey,
-            nonce: header.nonce
-        )
-        logger.info("\(packets.count) Opus-Pakete entschlüsselt")
-        return D3200Download(header: header, opusPackets: packets)
+            // Die Chunks sind exakt das gespeicherte Rohformat, daher derselbe
+            // Entschlüsselungsweg wie im Offline-Test gegen die Fixtures.
+            let packets = try D3200Crypto.decryptRawStream(
+                raw,
+                fileKey: fileKey,
+                nonce: header.nonce
+            )
+            logger.info("\(packets.count) Opus-Pakete entschlüsselt")
+            return D3200Download(header: header, opusPackets: packets)
+        }
     }
 
     /// Nutzlast eines `08b0`-Chunks: ab Offset 12 steht ein vollständiger
@@ -290,6 +307,31 @@ public actor D3200Client {
         let offset = frame.startIndex + 9
         guard offset < frame.endIndex else { return nil }
         return frame[offset]
+    }
+
+    // MARK: - Befehlsfolgen serialisieren
+
+    /// Führt eine komplette Befehlsfolge exklusiv aus.
+    ///
+    /// Der Actor allein genügt dafür **nicht**: Er serialisiert nur den
+    /// Methodeneintritt, und jedes `await` innerhalb einer Folge – Befehl
+    /// senden, auf Antwort warten – ist ein Punkt, an dem eine zweite Folge
+    /// startet. Beide greifen dann abwechselnd Frames aus demselben Strom.
+    ///
+    /// Am Gerät beobachtet: Eine nebenherlaufende Geräte-Info-Abfrage hat die
+    /// Antwort des Handshakes abgefangen, der Session-Key war falsch und das
+    /// Entpacken des File-Keys schlug fehl („Hülle beginnt nicht mit
+    /// soundcored3200").
+    private func runExclusively<T>(_ body: () async throws -> T) async rethrows -> T {
+        while isRunningCommand {
+            await withCheckedContinuation { commandQueue.append($0) }
+        }
+        isRunningCommand = true
+        defer {
+            isRunningCommand = false
+            if !commandQueue.isEmpty { commandQueue.removeFirst().resume() }
+        }
+        return try await body()
     }
 
     // MARK: - Frame-Pumpe

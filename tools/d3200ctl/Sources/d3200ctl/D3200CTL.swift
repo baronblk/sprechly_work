@@ -79,6 +79,56 @@ enum D3200CTL {
                 ))
             }
 
+            if command == "pullpolled" {
+                // Bildet die App nach: im Hintergrund läuft die Geräte-Info-
+                // Abfrage, währenddessen Handshake und Download.
+                note("starte Geräte-Info-Polling alle 2 s …")
+                let poller = Task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(2))
+                        do {
+                            let info = try await client.fetchDeviceInfo()
+                            note("  poll: Akku \(info.battery.percent) %")
+                        } catch {
+                            note("  poll FEHLER: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                note("ECDH-Handshake …")
+                do {
+                    try await client.performKeyExchange()
+                    note("Session-Key abgeleitet")
+                    guard let target = recordings.max(by: { $0.recordedAt < $1.recordedAt }) else {
+                        await finish(client, transport, code: 1)
+                    }
+                    note("Download \(String(format: "%08x", target.fileID)) …")
+                    let download = try await client.download(fileID: target.fileID)
+                    note("OK – \(download.opusPackets.count) Pakete")
+                } catch {
+                    note("FEHLER: \(error.localizedDescription)")
+                }
+                poller.cancel()
+                await finish(client, transport, code: 0)
+            }
+
+            if command == "pullmany" {
+                // Prüft, ob ein Session-Key für mehrere Downloads in derselben
+                // Verbindung gilt – genau das macht die App beim Mehrfach-Import.
+                note("ECDH-Handshake (einmalig) …")
+                try await client.performKeyExchange()
+                let targets = recordings.sorted { $0.recordedAt > $1.recordedAt }.prefix(3)
+                for (index, target) in targets.enumerated() {
+                    note("Download \(index + 1)/\(targets.count): \(String(format: "%08x", target.fileID)) …")
+                    do {
+                        let download = try await client.download(fileID: target.fileID)
+                        note("  OK – \(download.opusPackets.count) Pakete")
+                    } catch {
+                        note("  FEHLER: \(error.localizedDescription)")
+                    }
+                }
+                await finish(client, transport, code: 0)
+            }
+
             if command == "pull" {
                 guard let target = pick(requestedID, from: recordings) else {
                     note("keine passende Aufnahme – Abbruch")
