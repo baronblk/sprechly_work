@@ -80,6 +80,46 @@ enum D3200CTL {
                 ))
             }
 
+            if command == "live" {
+                // Prüft, ob das Gerät die gerade laufende Aufnahme streamt.
+                // Dann gäbe es Pegel und später Live-Transkript.
+                note("ECDH-Handshake …")
+                try await client.performKeyExchange()
+
+                let events = await client.events()
+                note("starte Aufnahme am Gerät …")
+                try await client.sendRecordControl(.start)
+
+                note("warte auf die file_id der neuen Aufnahme …")
+                var liveFileID: UInt32?
+                for await event in events {
+                    if case .recordingState(let fileID, _) = event {
+                        liveFileID = fileID
+                        break
+                    }
+                }
+                guard let liveFileID else {
+                    note("keine file_id erhalten")
+                    await finish(client, transport, code: 1)
+                }
+                note("laufende Aufnahme: \(String(format: "%08x", liveFileID))")
+                note("fordere sie an, während sie noch läuft …")
+
+                do {
+                    let download = try await client.download(fileID: liveFileID) { done, total in
+                        FileHandle.standardError.write(Data("  \(done)/\(total) B\n".utf8))
+                    }
+                    note("Stream lieferte \(download.opusPackets.count) Pakete")
+                } catch {
+                    note("Anforderung ergab: \(error.localizedDescription)")
+                }
+
+                note("stoppe die Aufnahme wieder")
+                try? await client.sendRecordControl(.stop)
+                try? await Task.sleep(for: .seconds(2))
+                await finish(client, transport, code: 0)
+            }
+
             if command == "pullpolled" {
                 // Bildet die App nach: im Hintergrund läuft die Geräte-Info-
                 // Abfrage, währenddessen Handshake und Download.

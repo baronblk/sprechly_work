@@ -128,3 +128,75 @@ struct ClientConcurrencyTests {
         await client.disconnect()
     }
 }
+
+/// Der Live-Status muss sofort kommen, nicht erst wenn zufällig ein Befehl
+/// auf eine Antwort wartet.
+@Suite("Client: unaufgeforderte Ereignisse")
+struct ClientEventTests {
+    /// Transport, der Pushes schickt, ohne dass etwas angefragt wurde.
+    private final class PushingTransport: DeviceTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sinks: [UUID: AsyncStream<Data>.Continuation] = [:]
+
+        func connect() async throws {}
+        func disconnect() async {
+            let sinks = lock.withLock { Array(self.sinks.values) }
+            for sink in sinks { sink.finish() }
+        }
+        func send(_ frame: Data) async throws {}
+
+        func notifications() -> AsyncStream<Data> {
+            let id = UUID()
+            return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+                lock.withLock { sinks[id] = continuation }
+                continuation.onTermination = { [weak self] _ in
+                    self?.lock.withLock { self?.sinks[id] = nil }
+                }
+            }
+        }
+
+        func push(_ frame: Data) {
+            let sinks = lock.withLock { Array(self.sinks.values) }
+            for sink in sinks { sink.yield(frame) }
+        }
+    }
+
+    @Test("Push ohne laufenden Befehl wird zum Ereignis")
+    func pushArrivesWithoutPendingCommand() async throws {
+        let transport = PushingTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+        let events = await client.events()
+
+        // Kein Befehl unterwegs – trotzdem muss das Ereignis ankommen.
+        transport.push(EventTests.newRecordingFrame)
+
+        var received: D3200Event?
+        for await event in events {
+            received = event
+            break
+        }
+        #expect(received == .recordingState(fileID: 0x6ACE_9A36, state: .newRecording))
+        await client.disconnect()
+    }
+
+    @Test("Start, Pause und Stop kommen als Statuswechsel an")
+    func statusChangesArrive() async throws {
+        let transport = PushingTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+        let events = await client.events()
+
+        transport.push(EventTests.startAckFrame)
+        transport.push(EventTests.pauseAckFrame)
+        transport.push(EventTests.stopAckFrame)
+
+        var statuses: [D3200RecordStatus] = []
+        for await event in events {
+            if case .recordStatus(let status, _, _) = event { statuses.append(status) }
+            if statuses.count == 3 { break }
+        }
+        #expect(statuses == [.recording, .paused, .stopped])
+        await client.disconnect()
+    }
+}

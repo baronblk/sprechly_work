@@ -336,7 +336,20 @@ public actor D3200Client {
 
     // MARK: - Frame-Pumpe
 
+    /// Nimmt jeden eingehenden Frame entgegen.
+    ///
+    /// Unaufgeforderte Pushes werden **hier** zu Ereignissen, nicht erst in
+    /// `nextMessage`. Sonst entstünden sie nur, solange gerade ein Befehl auf
+    /// Antwort wartet – der Live-Status käme also bloß im Takt des nächsten
+    /// Befehls statt sofort.
     private func ingest(_ frame: Data) {
+        if let response = RCSPFrame.Response(frame: frame),
+           let message = response.message,
+           D3200Event.unsolicitedTypes.contains(message) {
+            emit(D3200Event(response: response)
+                ?? .unknown(group: response.group, type: response.type, data: response.frame))
+            return
+        }
         if let continuation = takeWaiter() {
             continuation.resume(returning: frame)
         } else {
@@ -374,13 +387,8 @@ public actor D3200Client {
                     actual: response.frame.count
                 )
             }
-            // Unaufgeforderte Pushes gehören nicht in den Befehlsfluss – sie
-            // gehen an die Ereignis-Abnehmer und das Warten läuft weiter.
-            if let message = response.message, D3200Event.unsolicitedTypes.contains(message) {
-                emit(D3200Event(response: response)
-                    ?? .unknown(group: response.group, type: response.type, data: response.frame))
-                continue
-            }
+            // Pushes sind hier nicht mehr zu erwarten: `ingest` fängt sie ab,
+            // bevor sie in den Befehlsfluss geraten.
             return response
         }
     }
