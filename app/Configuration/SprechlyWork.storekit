@@ -1,0 +1,37 @@
+{
+  "identifier": "VOXSTUDIO_AI_CONFIG",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "9.99",
+      "familyShareable": true,
+      "internalID": "21460010",
+      "localizations": [
+        {
+          "description": "Schalte den On-Device-KI-Layer frei: Transkription, Zusammenfassungen und Transkript-Export.",
+          "displayName": "Sprechly KI",
+          "locale": "de_DE"
+        },
+        {
+          "description": "Unlock the on-device AI layer: transcription, summaries and transcript export.",
+          "displayName": "Sprechly AI",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "de.gcng.sprechly.ai",
+      "referenceName": "Sprechly AI",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_applicationInternalID": "0",
+    "_developerTeamID": "KZFCCDV6A8",
+    "_lastSynchronizedDate": 0,
+    "_storeKitDefaultStorefront": "DEU"
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

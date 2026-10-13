@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark" data-lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Security: static-page CSP. Set HSTS, X-Frame-Options, X-Content-Type-Options on the server too (see SECURITY-HEADERS.md). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="index,follow">
+<title>Datenschutz – Sprechly</title>
+<meta name="description" content="Datenschutzerklärung von Sprechly: On-Device-Verarbeitung, kein Tracking, DSGVO-konform.">
+<link rel="canonical" href="https://www.gcng.de/sprechly/privacy.html">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="de_DE">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Datenschutz – Sprechly">
+<meta property="og:description" content="On-Device-Verarbeitung, kein Tracking, DSGVO.">
+<meta property="og:url" content="https://www.gcng.de/sprechly/privacy.html">
+<meta property="og:image" content="https://www.gcng.de/sprechly/assets/icon-512.png">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<style>
+  :root{--accent:#c79a34;--accent-2:#e6c25a;--on-accent:#241a06;--maxw:820px}
+  [data-theme="light"]{--bg:#faf7f1;--bg2:#fffdf8;--card:#fff;--text:#1c1814;--muted:#5f574c;--border:#ece4d6;--shadow:0 10px 30px rgba(80,60,20,.10)}
+  [data-theme="dark"]{--bg:#0f0d0b;--bg2:#15110d;--card:#1b1712;--text:#f5efe6;--muted:#b3a896;--border:#2b241b;--shadow:0 14px 40px rgba(0,0,0,.45)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  a{color:var(--accent);text-decoration:none}
+  .lang-en{display:none}
+  html[data-lang="en"] .lang-de{display:none}
+  html[data-lang="en"] .lang-en{display:initial}
+  nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:saturate(150%) blur(12px);border-bottom:1px solid var(--border)}
+  nav .wrap{display:flex;align-items:center;gap:18px;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;color:var(--text)}
+  .brand img{width:34px;height:34px;border-radius:9px}
+  nav .spacer{flex:1}
+  nav a.link{color:var(--muted);font-size:15px}
+  nav a.link:hover{color:var(--text)}
+  .pill{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:7px 12px;font-size:14px;cursor:pointer;line-height:1}
+  .pill:hover{border-color:var(--accent)}
+  .toggles{display:flex;gap:8px;align-items:center}
+  main{padding:42px 0 70px}
+  h1{font-size:clamp(28px,5vw,40px);margin:0 0 6px;letter-spacing:-.01em}
+  .updated{color:var(--muted);font-size:14px;margin:0 0 26px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:10px 26px 26px;box-shadow:var(--shadow)}
+  h2{font-size:19px;color:var(--accent);margin:24px 0 8px}
+  p{margin:0 0 12px}
+  .addr{white-space:pre-line}
+  footer{border-top:1px solid var(--border);padding:30px 0;color:var(--muted);font-size:14px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:14px 22px;justify-content:space-between}
+  footer a{color:var(--muted)} footer a:hover{color:var(--accent)}
+</style>
+<script>
+  (function(){try{
+    var t=localStorage.getItem('sprechly-theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+    document.documentElement.setAttribute('data-theme',t);
+    var l=localStorage.getItem('sprechly-lang')||((navigator.language||'de').toLowerCase().startsWith('en')?'en':'de');
+    document.documentElement.setAttribute('data-lang',l);document.documentElement.setAttribute('lang',l);
+  }catch(e){}})();
+</script>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html"><img src="assets/favicon.png" alt="Sprechly"> Sprechly</a>
+  <div class="spacer"></div>
+  <a class="link" href="index.html"><span class="lang-de">Start</span><span class="lang-en">Home</span></a>
+  <a class="link" href="impressum.html"><span class="lang-de">Impressum</span><span class="lang-en">Legal</span></a>
+  <div class="toggles">
+    <button class="pill" id="lang-btn" type="button" aria-label="Language">DE</button>
+    <button class="pill" id="theme-btn" type="button" aria-label="Theme">◐</button>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1><span class="lang-de">Datenschutzerklärung</span><span class="lang-en">Privacy Policy</span></h1>
+  <p class="updated"><span class="lang-de">Stand: Juni 2026</span><span class="lang-en">Last updated: June 2026</span></p>
+
+  <div class="card">
+    <h2><span class="lang-de">Verantwortlicher</span><span class="lang-en">Controller</span></h2>
+    <p class="addr">Rene Süß
+Barbarossastr. 91
+09112 Chemnitz
+<span class="lang-de">Deutschland</span><span class="lang-en">Germany</span>
+E-Mail: <a href="mailto:support@gcng.de">support@gcng.de</a></p>
+
+    <h2><span class="lang-de">Grundsatz: Verarbeitung auf deinem Gerät</span><span class="lang-en">Principle: Processing on your device</span></h2>
+    <p><span class="lang-de">Sprechly verarbeitet deine Aufnahmen, Transkripte und KI-Ergebnisse vollständig lokal auf deinem Gerät. Wir betreiben keine eigenen Server und übertragen deine Inhalte nicht an uns oder Dritte. Es findet keine Analyse, kein Tracking und keine Werbung statt, und es werden keine Drittanbieter-SDKs eingesetzt.</span><span class="lang-en">Sprechly processes your recordings, transcripts and AI results entirely locally on your device. We operate no servers of our own and do not transmit your content to us or to third parties. There is no analytics, no tracking and no advertising, and no third-party SDKs are used.</span></p>
+
+    <h2><span class="lang-de">Mikrofon</span><span class="lang-en">Microphone</span></h2>
+    <p><span class="lang-de">Der Mikrofonzugriff wird ausschließlich für Aufnahmen verwendet und nur nach deiner ausdrücklichen Zustimmung aktiviert. Aufnahmen werden lokal im App-Speicher abgelegt.</span><span class="lang-en">Microphone access is used solely for recording and is only enabled after your explicit consent. Recordings are stored locally in the app’s storage.</span></p>
+
+    <h2><span class="lang-de">Spracherkennung &amp; KI</span><span class="lang-en">Speech recognition &amp; AI</span></h2>
+    <p><span class="lang-de">Transkription erfolgt on-device über Apples Speech-Framework. Titel, Zusammenfassungen, Protokolle und Übersetzungen werden on-device über Apple Foundation Models (Apple Intelligence) erstellt, sofern dein Gerät dies unterstützt. Diese Verarbeitung verlässt dein Gerät nicht.</span><span class="lang-en">Transcription runs on-device via Apple’s Speech framework. Titles, summaries, minutes and translations are generated on-device via Apple Foundation Models (Apple Intelligence), where your device supports it. This processing never leaves your device.</span></p>
+
+    <h2><span class="lang-de">iCloud-Synchronisierung (optional)</span><span class="lang-en">iCloud sync (optional)</span></h2>
+    <p><span class="lang-de">Wenn du iCloud-Sync aktivierst, werden deine Aufnahmen und Transkripte in deinem privaten iCloud-Konto (CloudKit) gespeichert und zwischen deinen Geräten synchronisiert. Anbieter ist Apple; es gilt zusätzlich Apples Datenschutzrichtlinie. Wir haben keinen Zugriff auf diese Daten. Die Synchronisierung lässt sich in den Einstellungen deaktivieren.</span><span class="lang-en">If you enable iCloud sync, your recordings and transcripts are stored in your private iCloud account (CloudKit) and synced across your devices. The provider is Apple; Apple’s privacy policy additionally applies. We have no access to this data. Sync can be disabled in Settings.</span></p>
+
+    <h2><span class="lang-de">Käufe</span><span class="lang-en">Purchases</span></h2>
+    <p><span class="lang-de">Der einmalige In-App-Kauf wird über den App Store (StoreKit) durch Apple abgewickelt. Sprechly erhält oder speichert keine Zahlungsdaten.</span><span class="lang-en">The one-time in-app purchase is handled by Apple via the App Store (StoreKit). Sprechly does not receive or store any payment data.</span></p>
+
+    <h2><span class="lang-de">Speicherdauer &amp; Löschung</span><span class="lang-en">Retention &amp; deletion</span></h2>
+    <p><span class="lang-de">Deine Inhalte bleiben gespeichert, bis du sie löschst. Gelöschte Aufnahmen liegen im Papierkorb und werden nach 30 Tagen endgültig entfernt. Bei aktivem iCloud-Sync wird die Löschung auf deine Geräte übertragen.</span><span class="lang-en">Your content remains stored until you delete it. Deleted recordings go to the trash and are permanently removed after 30 days. With iCloud sync enabled, deletion is propagated to your devices.</span></p>
+
+    <h2><span class="lang-de">Deine Rechte</span><span class="lang-en">Your rights</span></h2>
+    <p><span class="lang-de">Dir stehen die Rechte nach DSGVO zu (Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch). Da die Daten auf deinem Gerät bzw. in deinem iCloud-Konto liegen, kannst du sie jederzeit selbst in der App oder über iCloud einsehen und löschen. Bei Fragen erreichst du uns unter <a href="mailto:support@gcng.de">support@gcng.de</a>.</span><span class="lang-en">You have the rights under the GDPR (access, rectification, erasure, restriction, data portability, objection). Since the data resides on your device or in your iCloud account, you can view and delete it yourself at any time in the app or via iCloud. For questions, contact us at <a href="mailto:support@gcng.de">support@gcng.de</a>.</span></p>
+
+    <h2><span class="lang-de">Kinder</span><span class="lang-en">Children</span></h2>
+    <p><span class="lang-de">Die App richtet sich nicht an Kinder und erhebt nicht wissentlich Daten von Kindern.</span><span class="lang-en">The app is not directed at children and does not knowingly collect data from children.</span></p>
+
+    <h2><span class="lang-de">Änderungen</span><span class="lang-en">Changes</span></h2>
+    <p><span class="lang-de">Wir können diese Datenschutzerklärung anpassen, etwa bei neuen Funktionen. Die jeweils aktuelle Fassung ist in der App einsehbar.</span><span class="lang-en">We may update this privacy policy, for example when adding new features. The current version is always available in the app.</span></p>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <div>© 2026 Rene Süß · Sprechly</div>
+  <div style="display:flex;gap:18px;flex-wrap:wrap">
+    <a href="index.html"><span class="lang-de">Start</span><span class="lang-en">Home</span></a>
+    <a href="impressum.html"><span class="lang-de">Impressum</span><span class="lang-en">Legal notice</span></a>
+    <a href="mailto:support@gcng.de">support@gcng.de</a>
+  </div>
+</div></footer>
+
+<script>
+  function sync(){document.getElementById('lang-btn').textContent=(document.documentElement.getAttribute('data-lang')==='de'?'EN':'DE');}
+  document.getElementById('lang-btn').onclick=function(){var l=document.documentElement.getAttribute('data-lang')==='de'?'en':'de';document.documentElement.setAttribute('data-lang',l);document.documentElement.setAttribute('lang',l);try{localStorage.setItem('sprechly-lang',l);}catch(e){}sync();};
+  document.getElementById('theme-btn').onclick=function(){var t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('sprechly-theme',t);}catch(e){}};
+  sync();
+</script>
+</body>
+</html>

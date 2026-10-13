@@ -1,0 +1,29 @@
+{
+  "sourceLanguage" : "de",
+  "strings" : {
+    "Aufnahme läuft" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recording"
+          }
+        }
+      }
+    },
+    "Pausiert" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused"
+          }
+        }
+      }
+    },
+    "Sprechly" : {
+      "shouldTranslate" : false
+    }
+  },
+  "version" : "1.0"
+}

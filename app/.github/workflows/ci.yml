@@ -1,0 +1,129 @@
+name: CI
+
+# Runs the test suite on a self-hosted macOS runner (the dev MacBook).
+#
+# Runner prerequisites (provided outside this repo):
+#   - Registered self-hosted macOS runner (default labels include `macOS`).
+#   - Xcode 26.5 and `xcodegen` on PATH.
+#   - Xcode license accepted once on the runner, otherwise the very first run
+#     fails on the license gate:
+#       sudo xcodebuild -license accept
+#       sudo xcodebuild -runFirstLaunch
+#   - The iOS simulator runtime matching IOS_SIM_OS (26.2) + an "iPhone 17"
+#     device installed. NOTE: StoreKit Testing is broken on the iOS 26.5
+#     simulator runtime (Product.products returns empty even on a fresh boot),
+#     so we pin 26.2 where the suite is green. Install the 26.2 runtime via
+#     Xcode → Settings → Components (or `xcodebuild -downloadPlatform iOS`).
+#     See docs/IOS26_NOTES.md.
+
+on:
+  push:
+  pull_request:
+
+# One run per ref; cancel superseded runs so the long-lived runner does not pile up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 30
+
+    # SECURITY: this is a self-hosted runner. Never run untrusted fork PRs on it
+    # (a fork could execute arbitrary code on the homelab hardware). Restrict
+    # pull_request runs to branches in this same repository. For multi-contributor
+    # use, gate further with a protected GitHub Environment + manual approval.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    env:
+      # Single place to pin the simulator. OS=latest is intentionally avoided so a
+      # runtime change on the runner fails loudly instead of silently testing on a
+      # different iOS version.
+      SIM_NAME: "iPhone 17"
+      # Pinned to 26.2: the suite (incl. StoreKit Testing) is green here. The
+      # 26.5 simulator runtime breaks StoreKit Testing — see header note.
+      IOS_SIM_OS: "26.2"
+      DERIVED_DATA: ${{ github.workspace }}/.derivedData
+      RESULT_BUNDLE: ${{ github.workspace }}/TestResults.xcresult
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            echo "::error::xcodegen not found on the runner PATH."
+            exit 1
+          fi
+          xcodegen --version
+
+      - name: Boot simulator (defensive)
+        run: |
+          set -euo pipefail
+          # Resolve the UDID for the pinned name + OS. Fail loudly (and list what
+          # is installed) rather than falling back to a different runtime.
+          # `python3 -c` takes the program as an argument, so the simctl JSON pipe
+          # is the only thing on stdin (json.load(sys.stdin)).
+          UDID=$(xcrun simctl list devices available --json | python3 -c '
+          import json, os, sys
+          data = json.load(sys.stdin)
+          key = "com.apple.CoreSimulator.SimRuntime.iOS-" + os.environ["IOS_SIM_OS"].replace(".", "-")
+          name = os.environ["SIM_NAME"]
+          for dev in data["devices"].get(key, []):
+              if dev["name"] == name and dev.get("isAvailable", True):
+                  print(dev["udid"])
+                  break
+          ')
+          if [ -z "${UDID:-}" ]; then
+            echo "::error::No '${SIM_NAME}' simulator for iOS ${IOS_SIM_OS} on this runner."
+            echo "Installed iOS runtimes:"; xcrun simctl list runtimes | grep -i ios || true
+            echo "Update IOS_SIM_OS in .github/workflows/ci.yml to an installed version."
+            exit 1
+          fi
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          # `boot` errors if already booted on a non-fresh runner; bootstatus -b
+          # boots only if needed and then BLOCKS until the device is ready — the
+          # StoreKit test daemon needs a fully-booted sim (else SKInternalError 3).
+          echo "Booting ${SIM_NAME} (${UDID}) on iOS ${IOS_SIM_OS}…"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Clean per-run build artifacts
+        run: |
+          set -euo pipefail
+          # The self-hosted runner is long-lived; remove stale outputs so an old
+          # cache can never fake a green run, and so -resultBundlePath is fresh.
+          rm -rf "$DERIVED_DATA" "$RESULT_BUNDLE"
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project SprechlyWork.xcodeproj \
+            -scheme SprechlyWork \
+            -destination "platform=iOS Simulator,id=${SIM_UDID}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Only on failure (the bundle is for debugging a red run) and never fatal:
+      # an artifact-storage-quota hit must not turn a green test run red.
+      - name: Upload test result bundle
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
+          retention-days: 7
