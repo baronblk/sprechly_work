@@ -98,13 +98,75 @@ enum D3200CTL {
                 await finish(client, transport, code: 0)
             }
 
-            if command == "realtime" {
-                // Der Download-Befehl trägt laut Katalog `fileId + realtimeFlag`.
-                // Welches der Nullbytes das Flag ist, steht nirgends – also
-                // der Reihe nach durchprobieren und schauen, wo Chunks kommen.
+            if command == "poll" {
+                // Hypothese: Nicht ein Flag, sondern die Wiederholung bringt
+                // den Strom in Gang. Nur der bekannte, unveränderte Befehl.
                 note("ECDH-Handshake …")
                 try await client.performKeyExchange()
-                let frames = transport.notifications()
+                note("starte Aufnahme …")
+                try await client.sendRecordControl(.start)
+                var liveFileID: UInt32?
+                for await event in await client.events() {
+                    if case .recordingState(let fileID, _) = event { liveFileID = fileID; break }
+                }
+                guard let liveFileID else { await finish(client, transport, code: 1) }
+                try await Task.sleep(for: .seconds(3))
+
+                let request = D3200Commands.fileDetail(fileID: liveFileID)
+                note("sende die Anforderung alle 2 s, unverändert")
+                var previous = transport.count(of: .audioChunk)
+                for round in 1 ... 12 {
+                    try await transport.send(request)
+                    try await Task.sleep(for: .seconds(2))
+                    let now = transport.count(of: .audioChunk)
+                    note(String(format: "  Anfrage %2d: +%d Chunks", round, now - previous))
+                    previous = now
+                }
+
+                note("stoppe die Aufnahme wieder")
+                try? await client.sendRecordControl(.stop)
+                try? await Task.sleep(for: .seconds(2))
+                await finish(client, transport, code: 0)
+            }
+
+            if command == "rt" {
+                // Ein Kandidat, sauber isoliert: nur dieses eine Byte setzen
+                // und lange genug messen, um die Anlaufzeit zu erfassen.
+                let offset = Int(requestedID ?? "9") ?? 9
+                note("ECDH-Handshake …")
+                try await client.performKeyExchange()
+                note("starte Aufnahme …")
+                try await client.sendRecordControl(.start)
+                var liveFileID: UInt32?
+                for await event in await client.events() {
+                    if case .recordingState(let fileID, _) = event { liveFileID = fileID; break }
+                }
+                guard let liveFileID else { await finish(client, transport, code: 1) }
+                try await Task.sleep(for: .seconds(5))
+
+                var payload = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
+                if (8 ... 12).contains(offset) { payload[offset - 4] = 0x01 }
+                payload.append(littleEndianBytes: liveFileID)
+                note("sende mit Flag auf Offset \(offset) (0 = ohne Flag)")
+                try await transport.send(RCSPFrame.command(payload: payload))
+
+                var previous = transport.count(of: .audioChunk)
+                for bucket in 1 ... 6 {
+                    try await Task.sleep(for: .seconds(5))
+                    let now = transport.count(of: .audioChunk)
+                    note(String(format: "  %2d–%2d s: %d Chunks", (bucket - 1) * 5, bucket * 5, now - previous))
+                    previous = now
+                }
+
+                note("stoppe die Aufnahme wieder")
+                try? await client.sendRecordControl(.stop)
+                try? await Task.sleep(for: .seconds(2))
+                await finish(client, transport, code: 0)
+            }
+
+            if command == "realtime" {
+                note("ECDH-Handshake …")
+                try await client.performKeyExchange()
                 note("starte Aufnahme am Gerät …")
                 try await client.sendRecordControl(.start)
 
@@ -114,32 +176,44 @@ enum D3200CTL {
                 }
                 guard let liveFileID else { await finish(client, transport, code: 1) }
                 note("laufende Aufnahme: \(String(format: "%08x", liveFileID))")
+                note("lasse sie 10 s laufen, damit Material da ist …")
+                try await Task.sleep(for: .seconds(10))
 
-                // Chunk-Zähler im Hintergrund
-                let counter = ChunkCounter()
-                let watcher = Task {
-                    for await frame in frames {
-                        if RCSPFrame.Response(frame: frame)?.message == .audioChunk {
-                            counter.increment()
-                        }
-                    }
+                /// Sendet eine Variante und misst Chunks in zwei Zeitfenstern.
+                /// Nur wenn im zweiten Fenster noch welche kommen, läuft der
+                /// Strom wirklich weiter – sonst war es nur der Vorrat.
+                func probe(_ label: String, payload: Data) async throws {
+                    let before = transport.count(of: .audioChunk)
+                    try await transport.send(RCSPFrame.command(payload: payload))
+                    try await Task.sleep(for: .seconds(5))
+                    let mid = transport.count(of: .audioChunk)
+                    try await Task.sleep(for: .seconds(5))
+                    let after = transport.count(of: .audioChunk)
+                    note("\(label): Fenster 1 = \(mid - before), Fenster 2 = \(after - mid)"
+                        + ((after - mid) > 0 ? "  ← läuft weiter!" : ""))
                 }
 
-                for offset in 8 ... 12 {
-                    counter.reset()
-                    var payload = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
-                    payload[offset - 4] = 0x01     // Payload beginnt bei Frame-Offset 4
+                // Vergleichsmaß: die unveränderte Anforderung
+                var plain = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
+                plain.append(littleEndianBytes: liveFileID)
+                try await probe("ohne Flag           ", payload: plain)
+
+                // Flag HINTER der file_id – im Katalog steht „fileId + realtimeFlag"
+                for value in [UInt8(0x01), 0x02] {
+                    var payload = Data([0x00, 0x1A, 0x07, 0x13, 0x00, 0x00, 0x00, 0x00, 0x00])
                     payload.append(littleEndianBytes: liveFileID)
-                    let frame = RCSPFrame.command(payload: payload)
-                    note("Flag auf Offset \(offset): \(frame.map { String(format: "%02x", $0) }.joined(separator: " "))")
-                    try await transport.send(frame)
-                    try await Task.sleep(for: .seconds(4))
-                    let count = counter.value
-                    note(count > 0 ? "  → \(count) Audio-Chunks!" : "  → nichts")
-                    if count > 0 { break }
+                    payload.append(value)
+                    try await probe("Flag hinter ID = \(value) ", payload: payload)
                 }
 
-                watcher.cancel()
+                // Und nochmal die Bytes vor der ID, diesmal richtig gezählt
+                for offset in 8 ... 12 {
+                    var payload = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    payload[offset - 4] = 0x01
+                    payload.append(littleEndianBytes: liveFileID)
+                    try await probe("Flag auf Offset \(offset)   ", payload: payload)
+                }
+
                 note("stoppe die Aufnahme wieder")
                 try? await client.sendRecordControl(.stop)
                 try? await Task.sleep(for: .seconds(2))

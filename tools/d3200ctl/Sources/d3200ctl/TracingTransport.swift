@@ -32,6 +32,11 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
             }
         }
 
+        func count(group: UInt8, type: UInt8) -> Int {
+            let key = UInt16(group) << 8 | UInt16(type)
+            return lock.withLock { (counts[key] ?? [:]).values.reduce(0, +) }
+        }
+
         func report() -> String {
             lock.withLock {
                 order.map { key in
@@ -53,6 +58,13 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
     }
 
     var frameReport: String { stats.report() }
+
+    /// Wie viele Frames dieses Typs bisher ankamen. Grundlage der
+    /// Realtime-Probe: Der eigene Zähler über einen zweiten Stream hat
+    /// gelogen, diese Zählung sitzt im einzigen Tap und stimmt.
+    func count(of message: D3200Message) -> Int {
+        stats.count(group: message.group, type: message.type)
+    }
 
     func connect() async throws { try await base.connect() }
     func disconnect() async { await base.disconnect() }

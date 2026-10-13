@@ -411,6 +411,34 @@ Download-Anforderung braucht es hier **nicht**.
 > Genau daran wäre die Prüfung fast gescheitert: Der erste Versuch galt als
 > wirkungslos, weil die Liste unmittelbar danach noch 22 Einträge zeigte.
 
+## 7e. Live-Pegel: über BLE nicht erreichbar (geprüft 2026-10-14)
+
+Für einen Aufnahmepegel bräuchte die App das Audio **während** der Aufnahme.
+Über den BLE-Transferweg gibt es das nicht:
+
+| Versuch | Ergebnis |
+|---|---|
+| Transfer der laufenden Aufnahme, unverändert | 0 Chunks in 30 s |
+| derselbe Befehl 12× im Abstand von 2 s | 0 Chunks in 24 s |
+| Flag-Byte auf Offset 8, 9, 10, 11, 12 je einzeln | 0 Chunks |
+| Flag-Byte hinter der `file_id` (Wert 1 und 2) | 0 Chunks |
+
+Das Gerät **beantwortet** jede dieser Anforderungen mit einem `0761`-Header –
+es versteht sie also –, liefert die Chunks aber erst, **wenn die Aufnahme
+beendet ist**. Danach kommt die komplette Datei am Stück.
+
+> Ein früherer Lauf schien das Gegenteil zu zeigen: mitten in einer laufenden
+> Aufnahme flossen über 3000 Chunks. Die isolierten Wiederholungen widerlegen
+> das – dort hatte vermutlich eine der Varianten die Aufnahme vorzeitig
+> beendet, woraufhin die aufgelaufenen Anforderungen bedient wurden.
+
+**Folgerung:** Ein Pegel ist über diesen Weg nicht zu bauen. Bleiben zwei
+Möglichkeiten, beide noch offen:
+- der WLAN-SoftAP-/WebSocket-Pfad (§1) – die Referenz nennt dort einen
+  `realtimeFlag`, der womöglich gar nicht BLE betrifft;
+- ein HCI-Mitschnitt der Hersteller-App, während sie den Pegel anzeigt. Das
+  zeigt den tatsächlichen Befehl in einem Zug und ist der sichere Weg.
+
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**
 Konstanten (salt/info = 010203) ableitbar; das Gerät prüft den Auth-Token nicht und
