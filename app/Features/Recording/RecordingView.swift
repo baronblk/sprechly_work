@@ -5,6 +5,7 @@ struct RecordingView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(StoreManager.self) private var store
     @Environment(RatingPromptController.self) private var rating
+    @Environment(WorkDeviceViewModel.self) private var work
     @AppStorage("liveTranscriptEnabled") private var liveTranscriptEnabled = false
     @State private var viewModel = RecordingViewModel()
     @State private var showSettings = false
@@ -29,12 +30,21 @@ struct RecordingView: View {
 
             if viewModel.state == .idle || viewModel.state == .stopped { idleCard }
 
+            // Erscheint nur, wenn der Work verbunden ist – verbunden wird in
+            // den Einstellungen.
+            if work.isReady {
+                WorkDeviceCard()
+                    .padding(.horizontal, Theme.Spacing.md)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             Spacer()
 
             transport
                 .padding(.bottom, Theme.Spacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: 0.25), value: work.isReady)
         .background { DepthGlow().frame(width: 440, height: 440) }
         .background(Theme.Colors.background.ignoresSafeArea())
         .overlay(alignment: .topTrailing) {

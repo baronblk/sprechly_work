@@ -48,6 +48,7 @@ struct SettingsView: View {
                 }
             }
 
+            WorkSettingsSection()
             iCloudSection
 
             Section("Rechtliches") {

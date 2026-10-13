@@ -24,6 +24,7 @@ struct SprechlyWorkApp: App {
                 .environment(appState)
                 .environment(appState.store)
                 .environment(appState.rating)
+                .environment(appState.workDevice)
                 .modelContainer(modelContainer)
                 .tint(Theme.Colors.accent)
                 .preferredColorScheme(.dark)
