@@ -64,26 +64,37 @@ struct DecryptE2ETests {
         #expect(ogg == expectedOgg)
     }
 
+    /// Baut die `08b0`-Chunks so nach, wie das Gerät sie liefert (am 2026-10-13
+    /// verifiziert: 176 B Frame = 12 B Kopf + 164 B Rohframe), und prüft, dass
+    /// der BLE-Weg beim selben Ergebnis landet wie der Roh-Stream.
     @Test("Der BLE-Weg liefert dieselben Pakete wie das Rohformat")
     func bleChunkPathMatchesRawPath() throws {
-        let fromRaw = try D3200Crypto.decryptRawStream(raw, fileKey: fileKey, nonce: header.nonce)
+        let head = try #require(Data(hex: "09ff0000011a08b000"))
+        var reassembled = Data()
 
-        // 08b0-Chunks nachbilden: Präfix + 160-B-Nutzlast + Checksum-Byte.
-        let chunkPrefix = Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x08, 0xB0, 0x00, 0x00, 0x00, 0x00])
-        var fromChunks: [Data] = []
         for index in 0 ..< raw.count / D3200Crypto.rawFrameSize {
-            let start = raw.startIndex + index * D3200Crypto.rawFrameSize + 2
-            let payload = Data(raw[start ..< start + D3200Crypto.opusPacketSize])
-            let frame = chunkPrefix + payload + Data([RCSPFrame.checksum(payload)])
-            fromChunks.append(try D3200Crypto.decryptPacket(
-                D3200Client.audioPayload(from: frame),
-                sequence: index,
-                fileKey: fileKey,
-                nonce: header.nonce
-            ))
+            let start = raw.startIndex + index * D3200Crypto.rawFrameSize
+            let rawFrame = Data(raw[start ..< start + D3200Crypto.rawFrameSize])
+            let frame = head
+                + Data([UInt8(truncatingIfNeeded: index)])  // Frame-Zähler auf Offset 9
+                + Data([0x00, 0x00])                        // Offset 10/11
+                + rawFrame
+
+            #expect(frame.count == 176)
+            #expect(D3200Client.chunkSequence(of: frame) == UInt8(truncatingIfNeeded: index))
+            reassembled.append(D3200Client.audioPayload(from: frame))
         }
 
+        #expect(reassembled == raw)
+
+        let fromChunks = try D3200Crypto.decryptRawStream(
+            reassembled, fileKey: fileKey, nonce: header.nonce
+        )
+        let fromRaw = try D3200Crypto.decryptRawStream(raw, fileKey: fileKey, nonce: header.nonce)
         #expect(fromChunks == fromRaw)
+
+        // Und der ganze Weg bis zur Datei bleibt bitgenau.
+        #expect(try OggOpusWriter().makeFile(packets: fromChunks) == expectedOgg)
     }
 }
 

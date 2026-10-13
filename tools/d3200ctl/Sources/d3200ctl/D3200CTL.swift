@@ -10,15 +10,13 @@ enum D3200CTL {
             return
         }
 
-        let command = arguments.first(where: { !$0.hasPrefix("-") }) ?? "list"
+        let positional = positionalArguments(in: arguments)
+        let command = positional.first ?? "list"
+        let requestedID = positional.dropFirst().first
         let verbose = !arguments.contains("--quiet")
         let outputDirectory = URL(
             fileURLWithPath: value(of: "--out", in: arguments) ?? FileManager.default.currentDirectoryPath
         )
-        let requestedID = arguments
-            .drop(while: { $0 != command })
-            .dropFirst()
-            .first(where: { !$0.hasPrefix("-") })
 
         let transport = TracingTransport(wrapping: BLETransport(), verbose: verbose)
         let client = D3200Client(transport: transport)
@@ -97,6 +95,26 @@ enum D3200CTL {
             FileHandle.standardError.write(Data((report + "\n").utf8))
         }
         exit(code)
+    }
+
+    /// Flags mit eigenem Wert, damit der Wert nicht als Positionsargument gilt.
+    static let flagsTakingValue: Set<String> = ["--out"]
+
+    static func positionalArguments(in arguments: [String]) -> [String] {
+        var positional: [String] = []
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if flagsTakingValue.contains(argument) {
+                index += 2
+            } else if argument.hasPrefix("-") {
+                index += 1
+            } else {
+                positional.append(argument)
+                index += 1
+            }
+        }
+        return positional
     }
 
     static func value(of flag: String, in arguments: [String]) -> String? {

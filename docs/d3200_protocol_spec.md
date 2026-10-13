@@ -8,6 +8,15 @@ dienen der Interoperabilität (§ 69e UrhG) am eigenen Gerät.
 
 Alle Werte an eigenem Gerät (Pixel-Mitschnitt + macOS-Download) verifiziert.
 
+**Stand 2026-10-13:** Die eigenständige Swift-Implementierung (`SoundcoreWorkKit`)
+hat die Sequenz am Gerät komplett durchlaufen und dieselbe Aufnahme
+bitgenau (SHA-256-gleich) wie die Python-Referenz erzeugt. Die dabei
+gefundenen Abweichungen von der ursprünglichen Fassung sind unten direkt
+eingearbeitet und als „am Gerät verifiziert/korrigiert" markiert:
+Listen-Opcode `0e1c` statt `0e0c`, Listen-Einträge ab Offset 11 statt 10,
+Auth-Token 19 B statt 20 B, `08b0`-Nutzlast = 164-B-Rohframe statt 160-B-Paket,
+und Responses tragen keinen Checksum-Trailer.
+
 ---
 
 ## 1. Transport
@@ -43,19 +52,33 @@ Scans/Verbindens nicht mit dem Handy verbunden sein.
 
 ### Response / Event (Gerät → App, per Notify)
 ```
-09 FF 00 00 | <payload…> | <checksum>
+09 FF 00 00 | <flag> | <group> <cmd> <sub> | <daten…>
+  0  1  2  3 |   4    |   5      6     7   | 8 …
 ```
 - Präfix: `09 FF 00 00`.
-- Der **Opcode** steht in `response[6:8]` (die ersten zwei payload-Bytes hinter dem Präfix).
+- Der **Opcode** steht in `response[6:8]`.
+- **Kein Checksum-Trailer.** Die XOR-Regel gilt nur für Commands; bei Responses
+  reichen die Daten bis zum letzten Byte (am Gerät verifiziert: ein `08b0`-Frame
+  ist 176 B = 12 B Kopf + 164 B Nutzlast, da bleibt kein Platz für eine Checksum).
+  Das Feld „checksum" in §5 ist ein Header-*Feld*, kein Frame-Trailer.
+- `response[5:7]` spiegelt `command[1:3]`; `response[7]` ist der Antwort-Subcode.
+  Darum unterscheidet sich der Response-Opcode vom Command (`0e0c` → `0e1c`).
 
 ### Bekannte Response-Opcodes (`response[6:8]`)
-| Opcode | Bedeutung |
-|--------|-----------|
-| `07 61` | File-Detail-Antwort (enthält File-Header, siehe §5) |
-| `08 b0` | Audio-Daten-Chunk (Nutzlast = `frame[12:]`) |
-| `0a 13` | Transfer abgeschlossen (`total = LE32(data[10:14])`) |
-| `06 12` | Metadaten-Push (überspringen) |
-| `18 82` | Transfer-Init |
+| Opcode | Länge | Bedeutung |
+|--------|-------|-----------|
+| `07 61` | 97 B | File-Detail-Antwort (enthält File-Header, siehe §5) |
+| `08 b0` | 176 B | Audio-Daten-Chunk: `frame[12:]` = **ein vollständiger 164-B-Frame des Rohformats**; `frame[9]` = Frame-Zähler ab 0 |
+| `0a 13` | 19 B | Transfer abgeschlossen: `size = LE32(data[10:14])`, danach `file_id = LE32(data[14:18])` |
+| `01 6b` | 107 B | Antwort auf den ECDH-Handshake (`014b`), enthält den Geräte-Public-Key |
+| `0e 1c` | var. | Dateilisten-Antwort (siehe §4) |
+| `0e 14` | 20 B | leere Folgeseite = Listenende |
+| `03 0a` | 10 B | Auth bestätigt |
+| `a6 0a` | 10 B | Time-Sync bestätigt |
+| `06 12` | – | Metadaten-Push (überspringen) |
+| `18 82` | – | Transfer-Init |
+
+> Die Längen sind am eigenen Gerät gemessen (2026-10-13, Swift-Implementierung).
 
 ---
 
@@ -70,7 +93,8 @@ Am eigenen Gerät verifizierte, funktionierende Reihenfolge:
 5. **ECDH-Handshake** (ein einziges `014b`, QC-Keypair) → Session-Key ableiten.
 6. **File-Detail** anfordern (`0712` + file_id) → liefert `0761`-Response mit File-Header.
 7. **Audio-Download**: dieselbe `0712`-Anforderung stößt den Chunk-Stream (`08b0`) an,
-   abgeschlossen durch `0a13`.
+   abgeschlossen durch `0a13`. Am Gerät verifiziert: **ein** `0712` genügt – es
+   liefert erst den `0761`-Header und direkt danach die Chunks.
 8. Entschlüsseln (siehe §6) → Opus-Pakete → Ogg/Opus.
 
 > Reihenfolge-Hinweis vom eigenen Gerät: ECDH **vor** der File-Detail-Anforderung
@@ -85,16 +109,33 @@ Notation: Payload-Bytes (hinter Präfix `08 EE 00 00`, vor dem XOR-Checksum).
 
 | Befehl | Payload (hex) | Felder |
 |--------|---------------|--------|
-| Auth | `00 0b 03 27 00 1c` + `<token 20B>` + `15` | Token = base64-dekodiert von `AZDxUbC0xETNAC9H16acXvtLeQ==` (statisch) |
+| Auth | `00 0b 03 27 00 1c` + `<token 19B>` + `15` | Token = base64-dekodiert von `AZDxUbC0xETNAC9H16acXvtLeQ==` = `0190f151b0b4c444cd002f47d7a69c5efb4b79` (19 B, nicht 20); Command ist 31 B lang |
 | Time-Sync | `00 01 a6 14 00` + `<ts LE32>` + `0a 90 ff e6 6a 08` | ts = Unix-Sekunden |
 | Dateiliste | `00 1a 0e 0c 00 <page> 00 2a` | page = 0,1,2,… bis leere Seite |
 | File-Detail / Download | `00 1a 07 12 00 00 00 00 00` + `<file_id 4B>` | file_id = 4 Byte, little-endian |
 | ECDH | `00 2e 01 4b 00 04` + `<pubkey 64B>` | pubkey = X‖Y big-endian (unkomprimierter P-256-Punkt ohne 0x04-Präfix) |
 
-### Dateiliste-Parsing (`0e0c`-Antwort)
-Ab Offset 10 in 8-Byte-Einträgen: `file_id = LE32(data[i:i+4])`, `size = LE32(data[i+4:i+8])`.
-Plausibel, wenn `1735000000 < file_id < 1800000000` (file_id ist der Aufnahme-Unix-Timestamp)
-und `0 < size < 10_000_000`.
+### Dateiliste-Parsing (`0e1c`-Antwort)
+Der Command trägt `0e 0c`, die **Antwort** trägt `0e 1c`. Layout (am Gerät verifiziert):
+
+```
+09 ff 00 00 01 1a 0e 1c 00 | 01 00 | 4b 4a 7b 69 | 84 03 00 00 | 00×8 | 4e
+                     opcode | count | file_id LE32 | size LE32   | Rest |
+  0 .. 8                    | 9 10  | 11 .. 15     | 15 .. 19    | 19.. |
+```
+
+- `count = LE16(data[9:11])` – Anzahl Einträge (nur Diagnose).
+- Einträge ab **Offset 11** als 8-Byte-Paare `file_id ‖ size`, je LE32.
+- Plausibel, wenn `1735000000 < file_id < 1800000000` (file_id ist der
+  Aufnahme-Unix-Timestamp) und `0 < size < 10_000_000`.
+- Eine leere Folgeseite antwortet mit Opcode `0e 14` → Listenende.
+
+> Die Schrittweite der Einträge ist nicht abschließend belegt: am Testgerät lag
+> nur **eine** Aufnahme vor, hinter dem Eintrag standen 8 Nullbytes (entweder
+> Reserve des Eintrags → Schrittweite 16, oder Padding der Antwort →
+> Schrittweite 8). Das 8-Byte-Raster plus Plausibilitätsfilter liefert in beiden
+> Fällen dasselbe Ergebnis, weil Nullbytes nie plausibel sind.
+> Mit einer zweiten Aufnahme auf dem Gerät klären.
 
 ---
 
@@ -148,9 +189,13 @@ Der rohe Audio-Stream besteht aus 164-Byte-Frames. Pro Frame:
 - `counter = nonce[0:12] ‖ BE32(seq * 10)` (16 Byte AES-CTR-IV; `nonce` aus dem File-Header).
 - `opusPacket = AES-256-CTR(key = fileKey, iv = counter, data = payload)` → 160 Byte Opus.
 
-> Hinweis: Beim BLE-Download kommen die 160-B-Nutzlasten bereits als `08b0`-Chunks
-> (`frame[12:]`). Der 164-B/`frame[2:162]`-Zuschnitt oben gilt für das gespeicherte
-> Rohformat; beide Wege liefern dieselben 160-B-Pakete in Reihenfolge.
+> Hinweis (am Gerät korrigiert): Beim BLE-Download liefert `frame[12:]` eines
+> `08b0`-Chunks **genau einen 164-B-Frame des Rohformats**, nicht eine nackte
+> 160-B-Nutzlast. Der Zuschnitt `frame[2:162]` oben gilt also für beide Wege;
+> BLE-Download und gespeicherte Rohdatei sind Byte für Byte dasselbe.
+> Gegenprobe: 45 Chunks à 176 B ⇒ 45 × 164 B = 7380 B = Größe von
+> `fixtures/raw_4b4a7b69.bin`. Das erste Frame trägt die Flags `00 02`, das
+> letzte `00 04`; `frame[9]` zählt die Frames ab 0.
 
 ### 6.5 AES-CTR auf Apple-Plattformen
 CryptoKit bietet **kein** AES-CTR. Verwende `CommonCrypto`:

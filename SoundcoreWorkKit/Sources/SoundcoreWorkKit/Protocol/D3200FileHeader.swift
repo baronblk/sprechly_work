@@ -73,13 +73,31 @@ public extension D3200Recording {
         Self.plausibleFileIDRange.contains(fileID) && Self.plausibleSizeRange.contains(size)
     }
 
-    /// Parst die Einträge einer `0e0c`-Antwort (8-Byte-Einträge ab Offset 10).
+    /// Anzahl Aufnahmen, die die Antwort auf Offset 9/10 angibt (LE16).
+    ///
+    /// Nur Diagnose: die Einträge werden über das Plausibilitätsfenster erkannt,
+    /// nicht über diesen Zähler.
+    static func declaredCount(response: Data) -> Int? {
+        let bytes = Data(response)
+        guard bytes.count >= 11 else { return nil }
+        let base = bytes.startIndex + 9
+        return Int(UInt16(bytes[base]) | UInt16(bytes[base + 1]) << 8)
+    }
+
+    /// Parst die Einträge einer `0e1c`-Antwort: 8-Byte-Paare `file_id ‖ size`
+    /// ab Offset 11, gefiltert über das Plausibilitätsfenster aus Spec §4.
+    ///
+    /// Am Gerät war nur eine Aufnahme vorhanden, daher ist die Schrittweite
+    /// nicht abschließend belegt: hinter dem Eintrag standen 8 Nullbytes, die
+    /// entweder Reserve des Eintrags (Schrittweite 16) oder Padding der
+    /// Antwort sind. Das 8-Byte-Raster plus Filter liefert in beiden Fällen
+    /// dasselbe Ergebnis, weil Nullbytes nie plausibel sind.
     static func parseList(response: Data) -> [D3200Recording] {
         let bytes = Data(response)
-        let start = D3200Opcode.fileList.payloadOffset
         var recordings: [D3200Recording] = []
-        var offset = start
-        while offset + 8 <= bytes.count {
+        // Das letzte Byte ist die Checksum und kann nicht Teil eines Eintrags sein.
+        var offset = D3200Opcode.fileList.payloadOffset
+        while offset + 8 <= bytes.count - 1 {
             guard let fileID = bytes.littleEndianUInt32(at: offset),
                   let size = bytes.littleEndianUInt32(at: offset + 4)
             else { break }

@@ -72,8 +72,13 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
     private func log(_ direction: String, _ frame: Data) {
         guard verbose else { return }
         let opcode = RCSPFrame.opcode(of: frame).map { String(format: "%04x", $0) } ?? "----"
-        let head = frame.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
-        let tail = frame.count > 16 ? " … \(String(format: "%02x", frame[frame.index(before: frame.endIndex)]))" : ""
+        // Kurze Frames vollständig dumpen – sie tragen die Layouts, die wir
+        // gegen die Spec prüfen. Audio-Chunks nur anreißen.
+        let limit = frame.count <= 64 ? frame.count : 16
+        let head = frame.prefix(limit).map { String(format: "%02x", $0) }.joined(separator: " ")
+        let tail = frame.count > limit
+            ? " … \(String(format: "%02x", frame[frame.index(before: frame.endIndex)]))"
+            : ""
         FileHandle.standardError.write(Data(
             "\(direction) op=\(opcode) len=\(frame.count)  \(head)\(tail)\n".utf8
         ))

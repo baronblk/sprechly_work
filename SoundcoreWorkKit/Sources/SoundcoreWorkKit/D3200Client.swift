@@ -30,6 +30,7 @@ public actor D3200Client {
         case notConnected
         case keyExchangeMissing
         case unexpectedFrame(opcode: UInt16?)
+        case chunkOutOfOrder(expected: UInt8, got: UInt8)
         case streamEnded
         case concurrentRead
         case incompleteAudio(bytes: Int)
@@ -50,8 +51,11 @@ public actor D3200Client {
                 "Die Verbindung wurde während des Transfers beendet."
             case .concurrentRead:
                 "Es läuft bereits eine Leseanforderung – Befehle müssen sequenziell laufen."
+            case .chunkOutOfOrder(let expected, let got):
+                "Audio-Chunk außer Reihe: erwartet #\(expected), erhalten #\(got)."
             case .incompleteAudio(let bytes):
-                "Audio-Stream endete mit \(bytes) Byte und ist kein Vielfaches von 160."
+                "Audio-Stream endete mit \(bytes) Byte und ist kein Vielfaches von "
+                    + "\(D3200Crypto.rawFrameSize)."
             }
         }
     }
@@ -117,7 +121,8 @@ public actor D3200Client {
         var recordings: [D3200Recording] = []
         for page in 0 ..< maxPages {
             try await transport.send(D3200Commands.listFiles(page: UInt8(truncatingIfNeeded: page)))
-            let frame = try await nextFrame()
+            let frame = try await nextFrame(expecting: [.fileList, .fileListEnd])
+            if RCSPFrame.opcode(of: frame) == D3200Opcode.fileListEnd.rawValue { break }
             let items = D3200Recording.parseList(response: frame)
             if items.isEmpty { break }
             recordings.append(contentsOf: items)
@@ -133,7 +138,7 @@ public actor D3200Client {
         try await transport.send(
             D3200Commands.keyExchange(publicKey: D3200Crypto.rawPublicKey(privateKey))
         )
-        let frame = try await nextFrame()
+        let frame = try await nextFrame(expecting: [.keyExchange])
         let devicePublicKey = try D3200Crypto.parseDevicePublicKey(from: frame)
         let shared = try D3200Crypto.sharedSecret(
             privateKey: privateKey,
@@ -160,52 +165,60 @@ public actor D3200Client {
         let fileKey = try D3200Crypto.unwrapFileKey(header: header, sessionKey: sessionKey)
         logger.info("File-Key entpackt (file_id=\(header.fileID), size=\(header.fileSize))")
 
-        var encrypted = Data()
+        var raw = Data()
+        var chunkIndex = 0
         collect: while true {
             let frame = try await nextFrame(expecting: [.audioChunk, .transferComplete, .transferInit])
             switch RCSPFrame.opcode(of: frame).flatMap(D3200Opcode.init(rawValue:)) {
             case .audioChunk:
-                encrypted.append(Self.audioPayload(from: frame))
-                progress?(encrypted.count, Int(header.fileSize))
+                // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
+                // Byte breit und läuft nach 256 Frames über.
+                let expected = UInt8(truncatingIfNeeded: chunkIndex)
+                if let sequence = Self.chunkSequence(of: frame), sequence != expected {
+                    throw ClientError.chunkOutOfOrder(expected: expected, got: sequence)
+                }
+                raw.append(Self.audioPayload(from: frame))
+                chunkIndex += 1
+                progress?(raw.count, Int(header.fileSize))
             case .transferComplete:
-                let total = frame.littleEndianUInt32(at: D3200Opcode.transferComplete.payloadOffset)
-                logger.info("Transfer fertig, Gerät meldet \(total ?? 0) Byte")
+                let size = frame.littleEndianUInt32(at: D3200Opcode.transferComplete.payloadOffset)
+                logger.info("Transfer fertig, Gerät meldet Größe \(size ?? 0)")
                 break collect
             default:
                 continue  // transferInit – nur eine Ankündigung
             }
         }
 
-        guard encrypted.count % D3200Crypto.opusPacketSize == 0, !encrypted.isEmpty else {
-            throw ClientError.incompleteAudio(bytes: encrypted.count)
+        guard raw.count % D3200Crypto.rawFrameSize == 0, !raw.isEmpty else {
+            throw ClientError.incompleteAudio(bytes: raw.count)
         }
 
-        let packetCount = encrypted.count / D3200Crypto.opusPacketSize
-        var packets: [Data] = []
-        packets.reserveCapacity(packetCount)
-        for index in 0 ..< packetCount {
-            let start = encrypted.startIndex + index * D3200Crypto.opusPacketSize
-            let payload = Data(encrypted[start ..< start + D3200Crypto.opusPacketSize])
-            packets.append(try D3200Crypto.decryptPacket(
-                payload,
-                sequence: index,
-                fileKey: fileKey,
-                nonce: header.nonce
-            ))
-        }
+        // Die Chunks sind exakt das gespeicherte Rohformat, daher derselbe
+        // Entschlüsselungsweg wie im Offline-Test gegen die Fixtures.
+        let packets = try D3200Crypto.decryptRawStream(
+            raw,
+            fileKey: fileKey,
+            nonce: header.nonce
+        )
         logger.info("\(packets.count) Opus-Pakete entschlüsselt")
         return D3200Download(header: header, opusPackets: packets)
     }
 
-    /// Nutzlast eines `08b0`-Chunks (Spec §2: `frame[12...]`).
+    /// Nutzlast eines `08b0`-Chunks: ab Offset 12 steht ein vollständiger
+    /// 164-Byte-Frame des Rohformats (2 B Flags, 160 B Audio, 2 B Rest).
     ///
-    /// Beobachtet sind 160-Byte-Nutzlasten. Hängt am Frame zusätzlich das
-    /// Checksum-Byte, wird es verworfen; der Rest geht unverändert weiter und
-    /// wird am Transfer-Ende gegen ein Vielfaches von 160 geprüft.
+    /// Am Gerät verifiziert: 45 Chunks à 176 B ergeben 7380 B – genau den
+    /// Roh-Stream der Referenz-Aufnahme. Ein Checksum-Byte am Frame-Ende gibt
+    /// es nicht; die Nutzlast reicht bis zum letzten Byte.
     static func audioPayload(from frame: Data) -> Data {
-        let payload = Data(frame.dropFirst(D3200Opcode.audioChunk.payloadOffset))
-        guard payload.count % D3200Crypto.opusPacketSize == 1 else { return payload }
-        return Data(payload.dropLast())
+        Data(frame.dropFirst(D3200Opcode.audioChunk.payloadOffset))
+    }
+
+    /// Frame-Zähler eines `08b0`-Chunks (Offset 9, beginnt bei 0).
+    static func chunkSequence(of frame: Data) -> UInt8? {
+        let offset = frame.startIndex + 9
+        guard offset < frame.endIndex else { return nil }
+        return frame[offset]
     }
 
     // MARK: - Frame-Pumpe

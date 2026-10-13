@@ -43,7 +43,8 @@ public enum RCSPFrame {
 public enum D3200Opcode: UInt16, Sendable, CaseIterable {
     /// File-Detail-Antwort, enthält den File-Header (§5).
     case fileDetail = 0x0761
-    /// Audio-Daten-Chunk; Nutzlast = `frame[12...]`.
+    /// Audio-Daten-Chunk. Ab Offset 12 steht ein vollständiger 164-Byte-Frame
+    /// des Rohformats; Offset 9 trägt den Frame-Zähler.
     case audioChunk = 0x08B0
     /// Transfer abgeschlossen; `total = LE32(frame[10..<14])`.
     case transferComplete = 0x0A13
@@ -51,8 +52,15 @@ public enum D3200Opcode: UInt16, Sendable, CaseIterable {
     case metadataPush = 0x0612
     /// Transfer-Init.
     case transferInit = 0x1882
-    /// Antwort auf die Dateilisten-Abfrage (§4).
-    case fileList = 0x0E0C
+    /// Antwort auf den ECDH-Handshake (`014b`); enthält den Geräte-Public-Key.
+    case keyExchange = 0x016B
+    /// Leere Folgeseite der Dateiliste – markiert das Listenende.
+    case fileListEnd = 0x0E14
+    /// Antwort auf die Dateilisten-Abfrage.
+    ///
+    /// Spec §4 nennt `0e0c` – das sind die Bytes des *Commands*. Am Gerät
+    /// verifiziert antwortet die Liste mit `0e1c`.
+    case fileList = 0x0E1C
 }
 
 public extension D3200Opcode {
@@ -60,8 +68,11 @@ public extension D3200Opcode {
     var payloadOffset: Int {
         switch self {
         case .audioChunk: 12
-        case .transferComplete, .fileList: 10
-        case .fileDetail, .metadataPush, .transferInit: 8
+        // Die Liste trägt auf 9/10 einen Eintragszähler, die Einträge beginnen
+        // erst auf 11 (am Gerät verifiziert; §4 nennt 10).
+        case .fileList: 11
+        case .transferComplete: 10
+        case .fileDetail, .metadataPush, .transferInit, .keyExchange, .fileListEnd: 8
         }
     }
 }
