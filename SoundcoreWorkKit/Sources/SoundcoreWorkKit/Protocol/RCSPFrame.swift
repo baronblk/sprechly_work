@@ -77,8 +77,10 @@ public enum D3200Message: UInt8, Sendable, CaseIterable {
     case keyExchange = 0x01
     /// Auth bestätigt.
     case auth = 0x03
-    /// Metadaten-Push – unaufgefordert, zu überspringen.
-    case metadataPush = 0x06
+    /// Unaufgeforderter Status-Push der Aufnahme (Gruppe 0x1a): trägt die
+    /// `file_id` und einen Statuscode. Am Gerät beim **Start** einer Aufnahme
+    /// beobachtet. Die Spec nannte ihn „Metadaten-Push (überspringen)".
+    case recordingState = 0x06
     /// File-Detail-Antwort, enthält den File-Header (§5).
     case fileDetail = 0x07
     /// Audio-Daten-Chunk.
@@ -87,8 +89,13 @@ public enum D3200Message: UInt8, Sendable, CaseIterable {
     case transferComplete = 0x0A
     /// Dateilisten-Antwort; Länge wächst mit der Anzahl Einträge.
     case fileList = 0x0E
-    /// Transfer-Init.
-    case transferInit = 0x18
+    /// Unaufgefordertes Ereignis am **Ende** einer Aufnahme (Gruppe 0x18):
+    /// trägt Dauer und `file_id` der gerade fertiggestellten Aufnahme.
+    ///
+    /// Die Spec führte dies als „`18 82` Transfer-Init" – das war eine
+    /// Fehldeutung: `0x18` ist die Gruppe, `0x82` der Typ. Beim Download
+    /// taucht die Nachricht nicht auf.
+    case recordingFinished = 0x82
     /// Time-Sync bestätigt.
     case timeSync = 0xA6
 }
@@ -100,7 +107,9 @@ public extension D3200Message {
         case .audioChunk: 12          // davor: Frame-Zähler auf 9, Füllbytes 10/11
         case .fileList: 11            // davor: Eintragszähler LE16 auf 9/10
         case .transferComplete: 10
-        case .keyExchange, .auth, .metadataPush, .fileDetail, .transferInit, .timeSync: 8
+        case .recordingState: 9       // file_id LE32, danach Statuscode LE32
+        case .recordingFinished: 11   // Dauer in Sekunden LE32, danach file_id LE32
+        case .keyExchange, .auth, .fileDetail, .timeSync: 8
         }
     }
 }

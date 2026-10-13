@@ -9,6 +9,9 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
     private let base: DeviceTransport
     private let stats = Stats()
     private let verbose: Bool
+    private let lock = NSLock()
+    private var sinks: [UUID: AsyncStream<Data>.Continuation] = [:]
+    private var tap: Task<Void, Never>?
 
     init(wrapping base: DeviceTransport, verbose: Bool) {
         self.base = base
@@ -57,19 +60,39 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         try await base.send(frame)
     }
 
-    func notifications() -> AsyncStream<Data> {
-        let inner = base.notifications()
-        return AsyncStream(bufferingPolicy: .unbounded) { continuation in
-            let task = Task {
+    /// Zählt und protokolliert **einmal** pro Frame und verteilt danach an
+    /// alle Abnehmer. Früher lag die Zählung im Stream-Closure und lief
+    /// dadurch pro Konsument – mit Client und Monitor am selben Transport
+    /// erschien jeder Frame doppelt.
+    private func startTapIfNeeded() {
+        lock.withLock {
+            guard tap == nil else { return }
+            let inner = base.notifications()
+            tap = Task { [weak self] in
                 for await frame in inner {
+                    guard let self else { return }
                     stats.record(type: RCSPFrame.Response(frame: frame)?.type, length: frame.count)
                     log("←", frame)
-                    continuation.yield(frame)
+                    let sinks = lock.withLock { Array(self.sinks.values) }
+                    for sink in sinks { sink.yield(frame) }
                 }
-                continuation.finish()
+                guard let self else { return }
+                let sinks = lock.withLock { Array(self.sinks.values) }
+                for sink in sinks { sink.finish() }
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    func notifications() -> AsyncStream<Data> {
+        let id = UUID()
+        let stream = AsyncStream(bufferingPolicy: .unbounded) { (continuation: AsyncStream<Data>.Continuation) in
+            lock.withLock { sinks[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.lock.withLock { self?.sinks[id] = nil }
+            }
+        }
+        startTapIfNeeded()
+        return stream
     }
 
     private func log(_ direction: String, _ frame: Data) {

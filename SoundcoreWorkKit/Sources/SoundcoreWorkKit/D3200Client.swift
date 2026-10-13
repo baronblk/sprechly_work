@@ -71,6 +71,7 @@ public actor D3200Client {
     private var pending: [Data] = []
     private var waiter: CheckedContinuation<Data, Error>?
     private var waitGeneration = 0
+    private var eventSinks: [UUID: AsyncStream<D3200Event>.Continuation] = [:]
     private var streamDidEnd = false
     private var sessionKey: Data?
 
@@ -81,6 +82,29 @@ public actor D3200Client {
 
     /// Ob der ECDH-Handshake gelaufen ist.
     public var hasSessionKey: Bool { sessionKey != nil }
+
+    /// Strom der unaufgeforderten Geräte-Ereignisse.
+    ///
+    /// Damit merkt die App live, wenn am Work selbst eine Aufnahme startet
+    /// oder endet. Mehrfachaufrufe liefern unabhängige Ströme.
+    public func events() -> AsyncStream<D3200Event> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+            eventSinks[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeEventSink(id) }
+            }
+        }
+    }
+
+    private func removeEventSink(_ id: UUID) {
+        eventSinks[id] = nil
+    }
+
+    private func emit(_ event: D3200Event) {
+        logger.info("Geräte-Ereignis: \(String(describing: event), privacy: .public)")
+        for sink in eventSinks.values { sink.yield(event) }
+    }
 
     // MARK: - Verbindung
 
@@ -102,6 +126,8 @@ public actor D3200Client {
         pumpTask = nil
         await transport.disconnect()
         finishStream()
+        for sink in eventSinks.values { sink.finish() }
+        eventSinks.removeAll()
         sessionKey = nil
     }
 
@@ -171,7 +197,7 @@ public actor D3200Client {
         var raw = Data()
         var chunkIndex = 0
         collect: while true {
-            let response = try await nextMessage(expecting: [.audioChunk, .transferComplete, .transferInit])
+            let response = try await nextMessage(expecting: [.audioChunk, .transferComplete])
             switch response.message {
             case .audioChunk:
                 // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
@@ -269,7 +295,13 @@ public actor D3200Client {
                     actual: response.frame.count
                 )
             }
-            if response.message == .metadataPush { continue }
+            // Unaufgeforderte Pushes gehören nicht in den Befehlsfluss – sie
+            // gehen an die Ereignis-Abnehmer und das Warten läuft weiter.
+            if let message = response.message, D3200Event.unsolicitedTypes.contains(message) {
+                emit(D3200Event(response: response)
+                    ?? .unknown(group: response.group, type: response.type, data: response.frame))
+                continue
+            }
             return response
         }
     }

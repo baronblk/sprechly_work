@@ -14,6 +14,7 @@ enum D3200CTL {
         let command = positional.first ?? "list"
         let requestedID = positional.dropFirst().first
         let verbose = !arguments.contains("--quiet")
+        let seconds = value(of: "--seconds", in: arguments).flatMap(Int.init) ?? 120
         let outputDirectory = URL(
             fileURLWithPath: value(of: "--out", in: arguments) ?? FileManager.default.currentDirectoryPath
         )
@@ -31,6 +32,13 @@ enum D3200CTL {
 
             try await client.syncTime()
             note("Zeit synchronisiert")
+
+            if command == "monitor" {
+                note("lausche \(seconds) s auf unaufgeforderte Frames.")
+                note("Drücke JETZT am Work die Aufnahmetaste, sprich kurz, stoppe wieder.")
+                try await monitor(transport: transport, seconds: seconds)
+                await finish(client, transport, code: 0)
+            }
 
             let recordings = try await client.listRecordings()
             note("\(recordings.count) Aufnahmen:")
@@ -74,6 +82,43 @@ enum D3200CTL {
         }
     }
 
+    /// Lauscht auf alles, was das Gerät von sich aus schickt.
+    ///
+    /// Protokoll-Discovery: Gruppe, Typ, Länge und der vollständige Frame
+    /// jedes Events mit Zeitstempel, damit sich Aufnahme-Start/-Stop,
+    /// Tastendrücke und Statusmeldungen zuordnen lassen.
+    static func monitor(transport: TracingTransport, seconds: Int) async throws {
+        // Eigener Stream neben dem des Clients – TracingTransport verteilt an alle.
+        let events = transport.notifications()
+        let start = ContinuousClock.now
+
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+        }
+        let printer = Task {
+            for await frame in events {
+                let elapsed = ContinuousClock.now - start
+                let seconds = Double(elapsed.components.seconds)
+                    + Double(elapsed.components.attoseconds) / 1e18
+                let hex = frame.map { String(format: "%02x", $0) }.joined(separator: " ")
+                let label: String
+                if let response = RCSPFrame.Response(frame: frame) {
+                    let name = response.message.map(String.init(describing:)) ?? "UNBEKANNT"
+                    label = String(
+                        format: "grp=%02x typ=%02x(%@) len=%d/%d",
+                        response.group, response.type, name,
+                        response.declaredLength, frame.count
+                    )
+                } else {
+                    label = "kein Response-Kopf len=\(frame.count)"
+                }
+                print(String(format: "[%7.3fs] %@  %@", seconds, label, hex))
+            }
+        }
+        _ = await watchdog.result
+        printer.cancel()
+    }
+
     /// Zielaufnahme wählen: explizite Hex-ID, sonst die neueste.
     static func pick(_ requested: String?, from recordings: [D3200Recording]) -> D3200Recording? {
         guard let requested else { return recordings.max(by: { $0.fileID < $1.fileID }) }
@@ -99,7 +144,7 @@ enum D3200CTL {
     }
 
     /// Flags mit eigenem Wert, damit der Wert nicht als Positionsargument gilt.
-    static let flagsTakingValue: Set<String> = ["--out"]
+    static let flagsTakingValue: Set<String> = ["--out", "--seconds"]
 
     static func positionalArguments(in arguments: [String]) -> [String] {
         var positional: [String] = []
@@ -152,9 +197,12 @@ enum D3200CTL {
 
       d3200ctl list                    Scan, Auth, Time-Sync, Aufnahmeliste
       d3200ctl pull [<file-id-hex>]    dazu ECDH + Download; ohne ID die neueste
+      d3200ctl monitor                 lauscht auf unaufgeforderte Frames
+                                       (Aufnahme-Start/-Stop, Tasten, Status)
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)
       --quiet       kein Frame-Trace auf stderr
+      --seconds <n> Laufzeit von `monitor` (Standard 120)
     """
 }

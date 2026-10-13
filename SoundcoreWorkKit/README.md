@@ -28,6 +28,8 @@ ffprobe codec=opus  48000 Hz  stereo  0,9 s
 | Ogg/Opus-Writer (§7) | ✅ bitgenau identisch mit der Referenz |
 | `BLETransport` (§1/§3) | ✅ am Gerät (Scan, Connect, Notify, MTU) |
 | `D3200Client`-Sequenz (§3) | ✅ am Gerät, voller Download |
+| Live-Ereignisse Start/Ende (§9) | ✅ am Gerät, 3 Zyklen reproduziert |
+| Akkustand / Gerätestatus | ❌ Gerät pusht ihn nicht, Abfrage-Command unbekannt |
 | Schrittweite der Listen-Einträge | ⚠️ offen – siehe unten |
 
 ```bash
@@ -88,14 +90,38 @@ Der Lauf mit `tools/d3200ctl` hat fünf Punkte geklärt; alle Korrekturen sind i
    Commands; bei `08b0` reicht die Nutzlast bis zum letzten Byte
    (12 + 164 = 176). Das Feld „checksum" in §5 ist ein Header-Feld.
 
+### Live-Status
+
+`D3200Client.events()` liefert die unaufgeforderten Ereignisse des Geräts:
+
+```swift
+Task {
+    for await event in await client.events() {
+        switch event {
+        case .recordingState(let fileID, let state) where state.isRecording:
+            …   // am Work wurde gerade eine Aufnahme gestartet
+        case .recordingFinished(let fileID, let seconds):
+            …   // fertig – jetzt ist sie in der Dateiliste
+        case .unknown(let group, let type, _):
+            …   // noch nicht zugeordnet, bewusst durchgereicht
+        }
+    }
+}
+```
+
+**Der Work kennt kein Pause.** Jeder Tastendruck schaltet um; „pausieren und
+weiter" erzeugt zwei getrennte Aufnahmen mit eigenen `file_id`s. Wer eine
+Pause-Anzeige baut, baut sie an der Realität vorbei.
+
 ### Noch offen
 
-**Schrittweite der Listen-Einträge.** Am Testgerät lag nur eine Aufnahme vor;
-hinter dem Eintrag standen 8 Nullbytes – entweder Reserve des Eintrags
-(Schrittweite 16) oder Padding der Antwort (Schrittweite 8). `parseList` nutzt
-ein 8-Byte-Raster plus Plausibilitätsfilter und liefert damit in beiden Fällen
-dasselbe Ergebnis. Mit einer **zweiten Aufnahme** auf dem Gerät abschließend
-klären: `d3200ctl list` zeigt den vollen Frame.
+**Akkustand und Gerätestatus.** In ~6 min Mitschnitt kam dazu kein einziges
+Frame, und ein Abfrage-Command steht nicht in der Spec. Das lässt sich nur
+durch Durchprobieren unbekannter Command-Bytes klären.
+
+**Statuscodes des Start-Pushes.** Der Code war in allen Beobachtungen `2`.
+Ob es weitere Werte gibt, ist offen – unbekannte Codes gehen daher
+unverändert durch.
 
 ## Sicherheits-Hinweis
 

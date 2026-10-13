@@ -75,8 +75,13 @@ Scans/Verbindens nicht mit dem Handy verbunden sein.
 | `0e 14` | 20 B | leere Folgeseite = Listenende |
 | `03 0a` | 10 B | Auth bestätigt |
 | `a6 0a` | 10 B | Time-Sync bestätigt |
-| `06 12` | – | Metadaten-Push (überspringen) |
-| `18 82` | – | Transfer-Init |
+| Typ `06` | 18 B | **Aufnahme gestartet** (Gruppe `1a`) – unaufgefordert, siehe §9 |
+| Typ `82` | 20 B | **Aufnahme beendet** (Gruppe `18`) – unaufgefordert, siehe §9 |
+
+> Die Spec führte diese beiden als „`06 12` Metadaten-Push (überspringen)" und
+> „`18 82` Transfer-Init". Beides war eine Fehldeutung: `0x12`/`0x14` sind die
+> Framelängen (18/20), und bei `18 82` ist `0x18` die **Gruppe**, `0x82` der Typ.
+> Beim Download taucht Typ `0x82` nie auf.
 
 > Die Längen sind am eigenen Gerät gemessen (2026-10-13, Swift-Implementierung).
 
@@ -225,3 +230,49 @@ Konstanten (salt/info = 010203) ableitbar; das Gerät prüft den Auth-Token nich
 authentifiziert den Verbindungspartner nicht. Jeder BLE-Client in Reichweite eines
 nicht gekoppelten Geräts kann damit Aufnahmen lesen. Für dieses Projekt: nur am
 eigenen, bewusst gekoppelten Gerät nutzen. Für Anker ein Fall für Responsible Disclosure.
+
+
+---
+
+## 9. Unaufgeforderte Ereignisse (Live-Status)
+
+Sobald am Gerät selbst etwas passiert, schickt es ohne Anforderung Frames über
+die Notify-Characteristic. Darauf beruht die Live-Anzeige in der App.
+
+Am eigenen Gerät über vier Monitor-Läufe (~6 min) mit je drei Start/Stop-Zyklen
+verifiziert (2026-10-13).
+
+### Aufnahme gestartet — Gruppe `1a`, Typ `06`, 18 B
+```
+09 ff 00 00 01 1a 06 12 00 | c7 9b ce 6a | 02 00 00 00 | d7
+  0 .. 8                   | file_id @9  | code @13    | Rest
+```
+- `file_id = LE32(data[9:13])` – die ID der **neu entstehenden** Aufnahme.
+- `code = LE32(data[13:17])` – in allen Beobachtungen **2**. Ein anderer Wert
+  ist nie aufgetreten, daher ist die Bedeutung als Zustandsraum nicht belegt;
+  die Implementierung reicht unbekannte Codes unverändert durch.
+
+### Aufnahme beendet — Gruppe `18`, Typ `82`, 20 B
+```
+09 ff 00 00 01 18 82 14 00 00 01 | 14 00 00 00 | c7 9b ce 6a | 66
+  0 .. 10                        | dauer_s @11 | file_id @15 | Rest
+```
+- `dauer_s = LE32(data[11:15])` – Dauer in **ganzen Sekunden** (abgerundet).
+  Gegenprobe: Push meldete 11 s, die Dateiliste für dieselbe Aufnahme 11,1 s.
+- `file_id = LE32(data[15:19])` – dieselbe ID wie im Start-Push.
+
+### Verhalten des Geräts
+- **Es gibt kein Pause.** Jeder Tastendruck schaltet um; „pausieren und
+  weiter" erzeugt **zwei getrennte Aufnahmen** mit eigenen `file_id`s.
+  Beobachtet: Start → Ende (20 s) → Start (neue ID) → Ende (13 s).
+- Der Start-Push kommt **~2 s nach** dem Tastendruck: die gemeldete Dauer liegt
+  konstant 2–2,5 s über dem Abstand der beiden Pushes. Für die Anzeige ist
+  daher die Dauer aus dem Ende-Push bzw. der Dateiliste maßgeblich, nicht die
+  selbst gestoppte Zeit.
+- Nur diese zwei Ereignisse treten auf. In ~6 min Mitschnitt kam **kein**
+  Akkustand und **kein** Ereignis für andere Tasten (Lautstärke, Marker).
+
+### Nicht bekannt
+**Akkustand und sonstiger Gerätestatus.** Das Gerät pusht sie nicht, und ein
+Abfrage-Command ist nicht bekannt. Dafür müsste man unbekannte Command-Bytes
+durchprobieren – nicht aus diesem Mitschnitt ableitbar.
