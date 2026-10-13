@@ -143,9 +143,9 @@ final class WorkDeviceViewModel {
     private func apply(status: D3200RecordStatus, seconds: UInt32?, fileID: UInt32?) async {
         switch status {
         case .recording:
-            // Nach einer Pause dort weiterzählen, wo sie begann.
-            let offset = if case .paused(let elapsed) = liveActivity { elapsed } else { TimeInterval(0) }
-            liveActivity = .recording(since: Date.now.addingTimeInterval(-offset))
+            if let since = Self.recordingStart(from: liveActivity, now: .now) {
+                liveActivity = .recording(since: since)
+            }
             startTicking()
 
         case .paused:
@@ -205,13 +205,29 @@ final class WorkDeviceViewModel {
         }
     }
 
+    /// Startzeitpunkt für „läuft" – oder `nil`, wenn der bisherige gilt.
+    ///
+    /// Zwei Dinge auf einmal: Nach einer Pause wird so zurückdatiert, dass die
+    /// Anzeige weiterläuft statt bei null zu beginnen. Und läuft die Aufnahme
+    /// in der Anzeige bereits, bleibt ihr Startzeitpunkt unangetastet – sonst
+    /// setzte die Bestätigung des Geräts die Uhr zurück, die das optimistische
+    /// Umschalten gerade erst richtig gestellt hat.
+    static func recordingStart(from previous: WorkLiveActivity, now: Date) -> Date? {
+        switch previous {
+        case .recording: nil
+        case .paused(let elapsed): now.addingTimeInterval(-elapsed)
+        case .idle, .finished: now
+        }
+    }
+
     /// Nimmt die Wirkung des Befehls vorweg. Die Meldung des Geräts
     /// überschreibt das gleich darauf – sie bleibt maßgeblich.
     private func applyOptimisticState(for action: D3200RecordAction) {
         switch action {
         case .start:
-            let offset = if case .paused(let elapsed) = liveActivity { elapsed } else { TimeInterval(0) }
-            liveActivity = .recording(since: Date.now.addingTimeInterval(-offset))
+            if let since = Self.recordingStart(from: liveActivity, now: .now) {
+                liveActivity = .recording(since: since)
+            }
             startTicking()
         case .pause:
             stopTicking()
@@ -302,6 +318,22 @@ final class WorkDeviceViewModel {
             logger.error("Löschen fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Löscht mehrere Aufnahmen nacheinander.
+    ///
+    /// Bewusst sequenziell: Das Gerät bearbeitet Befehle ohnehin einzeln, und
+    /// so bleibt bei einem Fehler nachvollziehbar, was weg ist und was nicht.
+    /// Gibt zurück, wie viele tatsächlich gelöscht wurden.
+    @discardableResult
+    func deleteRecordings(_ items: [WorkRecordingItem]) async -> Int {
+        var deleted = 0
+        for item in items {
+            let before = self.items.count
+            await deleteRecording(item)
+            if self.items.count < before { deleted += 1 }
+        }
+        return deleted
     }
 
     // MARK: - Automatischer Import

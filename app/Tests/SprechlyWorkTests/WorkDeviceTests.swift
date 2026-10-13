@@ -205,6 +205,37 @@ struct WorkDeviceTests {
         #expect(WorkDeviceViewModel().deviceInfo == nil)
     }
 
+    /// Nach Pause und Fortsetzen muss die Anzeige weiterlaufen. Sie sprang auf
+    /// null, weil die Bestätigung des Geräts den Startzeitpunkt neu setzte,
+    /// den das optimistische Umschalten gerade erst richtig gestellt hatte.
+    @Test("Fortsetzen zählt weiter, statt bei null zu beginnen")
+    @MainActor
+    func resumeKeepsTheElapsedTime() {
+        let jetzt = Date(timeIntervalSince1970: 1_000_000)
+
+        // 12 s gelaufen, dann pausiert → Start wird um 12 s zurückdatiert.
+        let nachPause = WorkDeviceViewModel.recordingStart(
+            from: .paused(elapsed: 12), now: jetzt
+        )
+        #expect(nachPause == jetzt.addingTimeInterval(-12))
+
+        // Die Bestätigung des Geräts folgt – der Startzeitpunkt bleibt stehen.
+        let schonLaufend = WorkDeviceViewModel.recordingStart(
+            from: .recording(since: jetzt.addingTimeInterval(-12)), now: jetzt
+        )
+        #expect(schonLaufend == nil)
+    }
+
+    @Test("Eine neue Aufnahme beginnt bei null")
+    @MainActor
+    func freshRecordingStartsAtZero() {
+        let jetzt = Date(timeIntervalSince1970: 1_000_000)
+        #expect(WorkDeviceViewModel.recordingStart(from: .idle, now: jetzt) == jetzt)
+        #expect(WorkDeviceViewModel.recordingStart(
+            from: .finished(fileID: 1, duration: 30), now: jetzt
+        ) == jetzt)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {
