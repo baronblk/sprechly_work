@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>de.gcng.sprechly.work.d3200ctl</string>
+	<key>CFBundleName</key>
+	<string>d3200ctl</string>
+	<key>CFBundleExecutable</key>
+	<string>d3200ctl</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Verbindet sich mit dem eigenen Soundcore Work, um Aufnahmen zu lesen.</string>
+</dict>
+</plist>
