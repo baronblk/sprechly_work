@@ -41,12 +41,32 @@ struct WorkDeviceTests {
 
     /// Resume ist derselbe Befehl wie Start – darum gibt es in der UI keinen
     /// eigenen Resume-Zustand jenseits von `paused`.
-    @Test("Fernsteuerung kennt nur Start und Pause")
+    /// Der zentrale Transport braucht alle drei Aktionen – Stop steht nicht
+    /// im Community-Katalog, wurde aber am Gerät bestätigt.
+    @Test("Fernsteuerung deckt Start, Pause und Stop ab")
     func remoteControlActions() {
-        #expect(D3200RecordAction.allCases.count == 2)
+        #expect(D3200RecordAction.allCases.count == 3)
         #expect(D3200RecordAction.resume == .start)
+        #expect(D3200RecordAction.stop.rawValue == 0x00)
         #expect(D3200RecordAction.start.rawValue == 0x01)
         #expect(D3200RecordAction.pause.rawValue == 0x02)
+    }
+
+    /// Der Work-Modus gilt nur, solange das Telefon selbst nicht aufnimmt –
+    /// sonst stünden zwei Aufnahmen gleichzeitig unter einem Button.
+    @Test("Live-Status deckt alle Transport-Fälle ab")
+    func transportStates() {
+        let recording = WorkLiveActivity.recording(since: .now)
+        let paused = WorkLiveActivity.paused(elapsed: 5)
+        let finished = WorkLiveActivity.finished(fileID: 1, duration: 5)
+
+        // Aufnehmen → Pause + Stop
+        #expect(recording.isRecording && !recording.isPaused)
+        // Pausiert → Fortsetzen + Stop
+        #expect(paused.isPaused && paused.isActive)
+        // Bereit und fertig → nur Aufnahme starten
+        #expect(!WorkLiveActivity.idle.isActive)
+        #expect(!finished.isActive)
     }
 
     // MARK: - Listeneinträge

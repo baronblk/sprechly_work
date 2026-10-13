@@ -103,7 +103,21 @@ struct EventTests {
 
     // MARK: - Commands
 
+    /// Antwort auf das Stop-Command (12 B, Status 0).
+    static let stopAckFrame = Data(hex: "09ff0000011882" + "0c" + "00" + "00" + "9140")!
+
+    @Test("Stop-Bestätigung meldet Status 0")
+    func decodesStopAck() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.stopAckFrame))
+        #expect(response.message == .recordControl)
+        guard case .recordStatus(let status, _, _) =
+            try #require(D3200Event(response: response))
+        else { return #expect(Bool(false), "kein recordStatus") }
+        #expect(status == .stopped)
+    }
+
     @Test("Record-Control-Command: 11 B, Länge auf Offset 7", arguments: [
+        (D3200RecordAction.stop, UInt8(0x00)),
         (D3200RecordAction.start, UInt8(0x01)),
         (D3200RecordAction.pause, UInt8(0x02)),
     ])
@@ -124,6 +138,8 @@ struct EventTests {
     func startCommandMatchesDevice() throws {
         #expect(D3200Commands.recordControl(.start) == Data(hex: "08ee0000001882" + "0b" + "00" + "01" + "90"))
         #expect(D3200Commands.recordControl(.pause) == Data(hex: "08ee0000001882" + "0b" + "00" + "02" + "93"))
+        // Stop steht nicht im Community-Katalog, wurde aber am Gerät bestätigt.
+        #expect(D3200Commands.recordControl(.stop) == Data(hex: "08ee0000001882" + "0b" + "00" + "00" + "91"))
     }
 
     @Test("Resume ist derselbe Befehl wie Start")

@@ -22,29 +22,26 @@ struct RecordingView: View {
 
             timeDisplay
 
-            if viewModel.state == .paused {
-                reviewArea
+            if isWorkMode {
+                workArea
             } else {
-                liveArea
-            }
-
-            if viewModel.state == .idle || viewModel.state == .stopped { idleCard }
-
-            // Erscheint nur, wenn der Work verbunden ist – verbunden wird in
-            // den Einstellungen.
-            if work.isReady {
-                WorkDeviceCard()
-                    .padding(.horizontal, Theme.Spacing.md)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                if viewModel.state == .paused {
+                    reviewArea
+                } else {
+                    liveArea
+                }
+                if viewModel.state == .idle || viewModel.state == .stopped { idleCard }
             }
 
             Spacer()
 
-            transport
-                .padding(.bottom, Theme.Spacing.xl)
+            Group {
+                if isWorkMode { workTransport } else { transport }
+            }
+            .padding(.bottom, Theme.Spacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeOut(duration: 0.25), value: work.isReady)
+        .animation(.easeOut(duration: 0.25), value: isWorkMode)
         .background { DepthGlow().frame(width: 440, height: 440) }
         .background(Theme.Colors.background.ignoresSafeArea())
         .overlay(alignment: .topTrailing) {
@@ -91,8 +88,47 @@ struct RecordingView: View {
     }
 
     // Big timecode with a pulsing record indicator while recording.
+    /// Solange der Work verbunden ist und das Telefon selbst nicht aufnimmt,
+    /// steuert der zentrale Transport das Gerät. Zwei Aufnahme-Buttons
+    /// nebeneinander wären verwirrend.
+    private var isWorkMode: Bool {
+        work.isReady && (viewModel.state == .idle || viewModel.state == .stopped)
+    }
+
     @ViewBuilder
     private var timeDisplay: some View {
+        if isWorkMode {
+            workTimeDisplay
+        } else {
+            phoneTimeDisplay
+        }
+    }
+
+    /// Laufzeit der Geräte-Aufnahme. Geschätzt – die genaue Dauer meldet
+    /// der Work am Ende.
+    private var workTimeDisplay: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            if work.liveActivity.isRecording {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.Colors.destructive)
+                    .symbolEffect(.pulse, options: .repeating)
+                    .accessibilityHidden(true)
+            }
+            Text(TimeFormatting.timecode(work.runningDuration))
+                .font(.system(size: 56, weight: .light, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(
+                    work.liveActivity.isActive ? Theme.Colors.textPrimary : Theme.Colors.textSecondary
+                )
+                .contentTransition(.numericText())
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("Aufnahmedauer am Work"))
+    }
+
+    @ViewBuilder
+    private var phoneTimeDisplay: some View {
         HStack(spacing: Theme.Spacing.sm) {
             if viewModel.state == .recording {
                 Image(systemName: "circle.fill")
@@ -198,6 +234,59 @@ struct RecordingView: View {
             }
             .cardSurface()
             .padding(.horizontal, Theme.Spacing.lg)
+        }
+    }
+
+    /// Statt Pegel und Live-Wellenform: der Zustand des Geräts. Das Audio
+    /// liegt auf dem Work und erreicht die App erst beim Import, ein
+    /// Live-Pegel ist darum nicht möglich.
+    @ViewBuilder
+    private var workArea: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            WorkDeviceCard()
+            Text(workHint)
+                .font(.caption)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .transition(.opacity)
+    }
+
+    private var workHint: LocalizedStringKey {
+        switch work.liveActivity {
+        case .idle: "Die Aufnahme läuft auf dem Work. Hol sie danach über die Karte in die Bibliothek."
+        case .recording: "Der Work nimmt auf. Pegel und Live-Transkript gibt es erst nach dem Import."
+        case .paused: "Pausiert – die Aufnahme bleibt eine Datei."
+        case .finished: "Fertig. Tippe die Karte an, um sie zu importieren."
+        }
+    }
+
+    /// Derselbe Transport wie fürs Telefon, nur dass er den Work steuert.
+    @ViewBuilder
+    private var workTransport: some View {
+        if work.liveActivity.isRecording {
+            HStack(spacing: Theme.Spacing.xxl) {
+                TransportButton(systemName: "pause.fill", size: 60, accessibilityLabel: "Work pausieren") {
+                    Haptics.impact(.light); Task { await work.pauseRecording() }
+                }
+                RecordButton(mode: .stop) {
+                    Haptics.notify(.success); Task { await work.stopRecording() }
+                }
+            }
+        } else if work.liveActivity.isPaused {
+            HStack(spacing: Theme.Spacing.xxl) {
+                RecordButton(mode: .record, size: 64) {
+                    Haptics.impact(.medium); Task { await work.startRecording() }
+                }
+                RecordButton(mode: .stop, size: 64) {
+                    Haptics.notify(.success); Task { await work.stopRecording() }
+                }
+            }
+        } else {
+            RecordButton(mode: .record) {
+                Haptics.impact(.medium); Task { await work.startRecording() }
+            }
         }
     }
 

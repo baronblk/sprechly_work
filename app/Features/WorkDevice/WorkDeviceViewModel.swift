@@ -150,7 +150,12 @@ final class WorkDeviceViewModel {
         await sendRecordControl(.pause)
     }
 
-    /// Das Gerät kennt keinen Stop-Befehl; Stop läuft über die Taste am Work.
+    /// Beendet die Aufnahme am Gerät. Der Work meldet danach Dauer und
+    /// `file_id`, und die Liste wird neu geladen.
+    func stopRecording() async {
+        await sendRecordControl(.stop)
+    }
+
     private func sendRecordControl(_ action: D3200RecordAction) async {
         guard let client else { return }
         do {

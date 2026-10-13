@@ -2,9 +2,11 @@ import SoundcoreWorkKit
 import SwiftUI
 
 /// Kompakte Karte für den Aufnahme-Screen: zeigt den Zustand des Soundcore
-/// Work, steuert seine Aufnahme und öffnet beim Antippen die Dateiliste.
+/// Work und öffnet beim Antippen die Dateiliste.
 ///
-/// Erscheint nur, wenn das Gerät verbunden ist – verbunden wird in den
+/// Gesteuert wird die Aufnahme über den zentralen Transport darunter – die
+/// Karte hat bewusst keine eigenen Aufnahme-Buttons, sonst gäbe es zwei.
+/// Erscheint nur, wenn das Gerät verbunden ist; verbunden wird in den
 /// Einstellungen.
 struct WorkDeviceCard: View {
     @Environment(WorkDeviceViewModel.self) private var work
@@ -55,14 +57,12 @@ struct WorkDeviceCard: View {
             Text(work.liveActivity.label)
                 .font(.subheadline)
                 .foregroundStyle(Theme.Colors.textPrimary)
-            if work.liveActivity.isActive {
-                Text(TimeFormatting.timecode(work.runningDuration))
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundStyle(Theme.Colors.accent)
-                    .monospacedDigit()
-            }
             Spacer()
-            control
+            if case .finished = work.liveActivity {
+                Text("Importieren")
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.accent)
+            }
         }
     }
 
@@ -76,33 +76,6 @@ struct WorkDeviceCard: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Colors.success)
         case .idle:
             Circle().fill(Theme.Colors.textSecondary).frame(width: 8, height: 8)
-        }
-    }
-
-    @ViewBuilder private var control: some View {
-        if work.liveActivity.isRecording {
-            Button {
-                Haptics.impact(.medium)
-                Task { await work.pauseRecording() }
-            } label: {
-                Image(systemName: "pause.fill")
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel(Text("Aufnahme am Work pausieren"))
-        } else {
-            Button {
-                Haptics.impact(.medium)
-                Task { await work.startRecording() }
-            } label: {
-                Image(systemName: work.liveActivity.isPaused ? "play.fill" : "record.circle")
-            }
-            .buttonStyle(.bordered)
-            .tint(work.liveActivity.isPaused ? Theme.Colors.accent : Theme.Colors.destructive)
-            .accessibilityLabel(Text(
-                work.liveActivity.isPaused
-                    ? "Aufnahme am Work fortsetzen"
-                    : "Aufnahme am Work starten"
-            ))
         }
     }
 

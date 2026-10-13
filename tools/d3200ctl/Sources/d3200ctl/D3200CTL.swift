@@ -50,6 +50,7 @@ enum D3200CTL {
                 switch requestedID {
                 case "start", "resume", nil: action = .start
                 case "pause": action = .pause
+                case "stop": action = .stop
                 default:
                     note("'\(requestedID ?? "")' ist weder start, resume noch pause")
                     await finish(client, transport, code: 1)

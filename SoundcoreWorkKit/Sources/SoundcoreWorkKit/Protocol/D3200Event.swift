@@ -5,6 +5,9 @@ import Foundation
 /// Resume trägt dasselbe Byte wie Start – das Gerät leitet aus seinem
 /// vorherigen Status ab, was gemeint ist.
 public enum D3200RecordAction: UInt8, Sendable, CaseIterable {
+    /// Beenden. Im Community-Katalog nicht enthalten – der Wert ist der
+    /// Statuscode 0 und wurde am eigenen Gerät gegengeprüft.
+    case stop = 0x00
     case start = 0x01
     case pause = 0x02
 

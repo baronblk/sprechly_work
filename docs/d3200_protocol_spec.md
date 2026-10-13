@@ -257,7 +257,7 @@ Die Aufnahme wird über **cmdType `0x18`, cmdId `0x82`** ferngesteuert (Payload 
 | **Start** | 0x18 / 0x82 | `01` | neue Aufnahme |
 | **Pause** | 0x18 / 0x82 | `02` | |
 | **Resume** | 0x18 / 0x82 | `01` | identisch zu Start; Gerät erkennt Resume daran, dass der vorige Status 2 (pause) war |
-| **Stop** | — | — | **kein eigener App-Befehl im Repo**; Stop kommt per Hardware-Taste bzw. das Gerät meldet Status 0. Noch offen, ob ein Stop-Command existiert → ggf. per Capture. |
+| **Stop** | 0x18 / 0x82 | `00` | **Existiert** – am eigenen Gerät verifiziert, obwohl im Community-Katalog nicht enthalten. Der Wert ist derselbe wie der Statuscode 0. |
 
 ### Am eigenen Gerät verifiziert (2026-10-13)
 
@@ -271,7 +271,16 @@ nicht übernommene Annahme:
 
 → 08 ee 00 00 00 18 82 0b 00 02 93      Pause
 ← 09 ff 00 00 01 18 82 0c 00 02 93 44   status = 2 (Pause)
+
+→ 08 ee 00 00 00 18 82 0b 00 00 91      Stop
+← 09 ff 00 00 01 18 82 0c 00 00 91 40   status = 0 (gestoppt)
+← 09 ff 00 00 01 18 82 14 00 00 01 18000000 3facce6a f3
+                                        fertig: 24 s, file_id 6acead3f
 ```
+
+Der Stop liefert zwei Nachrichten: erst die kurze Bestätigung (12 B) mit
+Status 0, dann die lange Fertig-Meldung (20 B) mit Dauer und `file_id` –
+dieselbe, die auch bei einem Stop an der Hardwaretaste kommt.
 
 Der Command trägt die Framelänge auf Offset 7 (`0x0b` = 11) wie jeder andere
 Command auch; das Nutzbyte steht auf Offset 9.

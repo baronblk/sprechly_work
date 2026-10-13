@@ -117,10 +117,15 @@ try await client.sendRecordControl(.start)   // startet, nach einer Pause: forts
 try await client.sendRecordControl(.pause)
 ```
 
+```swift
+try await client.sendRecordControl(.stop)
+```
+
 Das Gerät quittiert auf demselben Kanal mit `.recordStatus`; der Status steht
 auf Offset 9 (`0` stop, `1` läuft, `2` Pause) und ist am Gerät verifiziert.
-**Einen Stop-Befehl gibt es nicht** – Stop läuft über die Taste am Work, das
-Gerät meldet dann Status 0 mit Dauer und `file_id`.
+Beim Stop folgt zusätzlich die Fertig-Meldung mit Dauer und `file_id` – dieselbe
+wie bei einem Stop an der Hardwaretaste. **Der Stop-Befehl steht nicht im
+Community-Katalog**, funktioniert aber: Payload `00`, am Gerät gegengeprüft.
 
 Eine Pause **an der Hardwaretaste** bleibt unsichtbar: dabei kommt kein
 Ereignis, und Start → Pause → Weiter → Stop ergab eine einzige Aufnahme
@@ -131,9 +136,6 @@ Ereignis, und Start → Pause → Weiter → Stop ergab eine einzige Aufnahme
 **Akkustand und Gerätestatus.** In ~6 min Mitschnitt kam dazu kein einziges
 Frame, und ein Abfrage-Command steht nicht in der Spec. Das lässt sich nur
 durch Durchprobieren unbekannter Command-Bytes klären.
-
-**Stop per Befehl.** Im Community-Katalog gibt es keinen Stop-Command. Ob das
-Gerät einen kennt, ist offen.
 
 **Akkustufen außer 9.** Das Testgerät war voll geladen, daher ist nur der
 Rohwert 9 beobachtet. Die Umrechnung `(raw + 1) * 10` stammt aus dem
