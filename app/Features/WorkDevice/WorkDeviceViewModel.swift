@@ -43,6 +43,7 @@ final class WorkDeviceViewModel {
     private var eventTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var infoTask: Task<Void, Never>?
+    private var confirmationTask: Task<Void, Never>?
     /// Während eines Downloads ruht das Polling – der Client lässt nur einen
     /// Leser gleichzeitig zu.
     private var isTransferring = false
@@ -54,6 +55,19 @@ final class WorkDeviceViewModel {
 
     /// Ob überhaupt eine Aktion am Gerät möglich ist.
     var isReady: Bool { connection == .ready }
+
+    /// Die Aufnahme, die gerade geholt wird – für die Anzeige im
+    /// Aufnahme-Screen, wo die Dateiliste nicht offen ist.
+    var activeImport: WorkRecordingItem? { items.first { $0.isBusy } }
+
+    /// Zuletzt fertig importierte Aufnahme; wird kurz bestätigt und dann
+    /// wieder ausgeblendet, damit die Karte nicht dauerhaft zugestellt ist.
+    private(set) var recentlyImported: WorkRecordingItem?
+
+    /// Ein Import, der schiefging – bleibt stehen, bis er erneut versucht wird.
+    var failedImport: WorkRecordingItem? {
+        items.first { if case .failed = $0.importState { return true } else { return false } }
+    }
 
     // MARK: - Verbindung
 
@@ -86,6 +100,9 @@ final class WorkDeviceViewModel {
         eventTask = nil
         infoTask?.cancel()
         infoTask = nil
+        confirmationTask?.cancel()
+        confirmationTask = nil
+        recentlyImported = nil
         stopTicking()
         await client?.disconnect()
         client = nil
@@ -349,6 +366,18 @@ final class WorkDeviceViewModel {
 
         logger.info("importiere \(String(format: "%08x", fileID), privacy: .public) automatisch")
         await importRecording(item, context: modelContainer.mainContext)
+
+        // Kurze Bestätigung in der Karte, dann wieder weg.
+        if let fertig = items.first(where: { $0.id == fileID }),
+           case .imported = fertig.importState {
+            recentlyImported = fertig
+            confirmationTask?.cancel()
+            confirmationTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                guard let self, !Task.isCancelled else { return }
+                recentlyImported = nil
+            }
+        }
     }
 
     /// Welche Aufnahme nach einem Stop automatisch importiert wird.

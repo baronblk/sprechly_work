@@ -16,11 +16,13 @@ struct WorkDeviceCard: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             header
             statusRow
+            importRow
             if let info = work.deviceInfo { storageRow(info) }
         }
         .padding(Theme.Spacing.md)
         .background(background, in: RoundedRectangle(cornerRadius: Theme.Radius.lg))
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
+        .animation(.easeOut(duration: 0.2), value: work.recentlyImported?.id)
         .onTapGesture { showRecordings = true }
         .sheet(isPresented: $showRecordings) {
             NavigationStack { WorkRecordingsSheet() }
@@ -76,6 +78,57 @@ struct WorkDeviceCard: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Colors.success)
         case .idle:
             Circle().fill(Theme.Colors.textSecondary).frame(width: 8, height: 8)
+        }
+    }
+
+    /// Zeigt, was der automatische Import gerade tut. Ohne das liefe er
+    /// unsichtbar, denn die Dateiliste ist dabei normalerweise zu.
+    @ViewBuilder private var importRow: some View {
+        if let laufend = work.activeImport {
+            HStack(spacing: Theme.Spacing.sm) {
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(importLabel(for: laufend.importState))
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    if case .downloading(let fortschritt) = laufend.importState {
+                        ProgressView(value: fortschritt)
+                            .tint(Theme.Colors.accent)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(importLabel(for: laufend.importState)))
+        } else if let fertig = work.recentlyImported {
+            HStack(spacing: Theme.Spacing.xs) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Theme.Colors.success)
+                Text("\(TimeFormatting.timecode(fertig.recording.duration)) in der Bibliothek")
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            .transition(.opacity)
+        } else if let gescheitert = work.failedImport,
+                  case .failed(let grund) = gescheitert.importState {
+            HStack(spacing: Theme.Spacing.xs) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Theme.Colors.destructive)
+                Text(grund)
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.destructive)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func importLabel(for state: WorkRecordingItem.ImportState) -> String {
+        switch state {
+        case .downloading(let fortschritt):
+            String(localized: "Hole Aufnahme … \(Int(fortschritt * 100)) %")
+        case .converting:
+            String(localized: "Wandle um …")
+        default:
+            String(localized: "Importiere …")
         }
     }
 

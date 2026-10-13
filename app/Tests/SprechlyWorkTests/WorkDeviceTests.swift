@@ -236,6 +236,41 @@ struct WorkDeviceTests {
         ) == jetzt)
     }
 
+    /// Der automatische Import läuft, während die Dateiliste zu ist – die
+    /// Karte im Aufnahme-Screen muss ihn deshalb selbst anzeigen.
+    @Test("Laufender Import wird für die Anzeige gefunden")
+    @MainActor
+    func activeImportIsExposed() {
+        let viewModel = WorkDeviceViewModel()
+        #expect(viewModel.activeImport == nil)
+
+        viewModel.items = [
+            item(fileID: 0x6ACE_B548, state: .imported(recordingID: UUID())),
+            item(fileID: 0x6ACE_B43C, state: .downloading(progress: 0.4)),
+            item(fileID: 0x6ACE_B3DC),
+        ]
+        #expect(viewModel.activeImport?.id == 0x6ACE_B43C)
+
+        viewModel.items[1].importState = .converting
+        #expect(viewModel.activeImport?.id == 0x6ACE_B43C)
+
+        viewModel.items[1].importState = .imported(recordingID: UUID())
+        #expect(viewModel.activeImport == nil)
+    }
+
+    @Test("Ein gescheiterter Import bleibt sichtbar")
+    @MainActor
+    func failedImportIsExposed() {
+        let viewModel = WorkDeviceViewModel()
+        #expect(viewModel.failedImport == nil)
+
+        viewModel.items = [
+            item(fileID: 0x6ACE_B548),
+            item(fileID: 0x6ACE_B43C, state: .failed("Zeitüberschreitung")),
+        ]
+        #expect(viewModel.failedImport?.id == 0x6ACE_B43C)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {
