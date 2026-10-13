@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-10-13T21:22:54.165139",
+  "device_pubkey": "1e3544219fcc97019fa1a8fca0aeee34a780cb06edbaf93e2e9650a17c540eafeac44c76267dfc18490004b39408aaa7a8a09021bd6d77f4960c076068a24ec7",
+  "shared_secret": "28f3e8f5314a47640bebe10b1bd3d32d5d0feda73babe80080f92bdf69806b30",
+  "our_pubkey": "c1788a09cb143adab78ca5deb4a27c6f06a3f84642a28b453fe75a6d68d1078be6e7b58a5afdad1653c2ef6c55474849e89f2b17d21f6845663e2f2ccfa86aef",
+  "handshake_extra_equals_ecdh": true,
+  "handshake_extra": "28f3e8f5314a47640bebe10b1bd3d32d5d0feda73babe80080f92bdf69806b30",
+  "auth_response": "09ff0000010b030a0021",
+  "timesync_response": "09ff00000101a60a00ba",
+  "qc_shared_secret": "28f3e8f5314a47640bebe10b1bd3d32d5d0feda73babe80080f92bdf69806b30",
+  "qc_key": "4f69a99087eda5ec0704d56dbd51707eab67218d2ed91deea0520ce05faaab3d",
+  "qc_nonce": "28f3e8f5314a47640bebe10b1bd3d32d5d0feda73babe80080f92bdf69806b30"
+}
