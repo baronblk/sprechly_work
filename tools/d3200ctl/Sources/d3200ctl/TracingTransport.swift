@@ -3,9 +3,8 @@ import SoundcoreWorkKit
 
 /// Legt sich um einen echten Transport und protokolliert jeden Frame.
 ///
-/// Beantwortet die offenen Punkte aus `SoundcoreWorkKit/README.md`: Wie lang
-/// sind die `08b0`-Frames wirklich, welchen Opcode trägt die Listen-Antwort,
-/// und kommt nach dem `0761` ohne zweite Anforderung ein Chunk-Stream.
+/// Dient der Protokoll-Verifikation: zeigt Gruppe, Typ und die vom Gerät
+/// angegebene Länge jedes Frames und meldet, wenn die Länge nicht passt.
 final class TracingTransport: DeviceTransport, @unchecked Sendable {
     private let base: DeviceTransport
     private let stats = Stats()
@@ -22,8 +21,8 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         private var counts: [UInt16: [Int: Int]] = [:]
         private var order: [UInt16] = []
 
-        func record(opcode: UInt16?, length: Int) {
-            let key = opcode ?? 0xFFFF
+        func record(type: UInt8?, length: Int) {
+            let key = type.map(UInt16.init) ?? 0xFFFF
             lock.withLock {
                 if counts[key] == nil { order.append(key) }
                 counts[key, default: [:]][length, default: 0] += 1
@@ -37,7 +36,11 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
                         .sorted { $0.key < $1.key }
                         .map { "\($0.key) B ×\($0.value)" }
                         .joined(separator: ", ")
-                    let name = key == 0xFFFF ? "(zu kurz)" : String(format: "%04x", key)
+                    let name = key == 0xFFFF
+                        ? "(zu kurz)"
+                        : String(format: "Typ 0x%02x %@", key,
+                                 D3200Message(rawValue: UInt8(key))
+                                     .map { "(\($0))" } ?? "(unbekannt)")
                     return "  \(name): \(lengths)"
                 }.joined(separator: "\n")
             }
@@ -59,7 +62,7 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         return AsyncStream(bufferingPolicy: .unbounded) { continuation in
             let task = Task {
                 for await frame in inner {
-                    stats.record(opcode: RCSPFrame.opcode(of: frame), length: frame.count)
+                    stats.record(type: RCSPFrame.Response(frame: frame)?.type, length: frame.count)
                     log("←", frame)
                     continuation.yield(frame)
                 }
@@ -71,7 +74,18 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
 
     private func log(_ direction: String, _ frame: Data) {
         guard verbose else { return }
-        let opcode = RCSPFrame.opcode(of: frame).map { String(format: "%04x", $0) } ?? "----"
+        let label: String
+        if let response = RCSPFrame.Response(frame: frame) {
+            let name = response.message.map(String.init(describing:)) ?? "?"
+            let mismatch = response.hasConsistentLength ? "" : " LÄNGE!"
+            label = String(
+                format: "grp=%02x typ=%02x(%@) len=%d/%d%@",
+                response.group, response.type, name,
+                response.declaredLength, frame.count, mismatch
+            )
+        } else {
+            label = "command len=\(frame.count)"
+        }
         // Kurze Frames vollständig dumpen – sie tragen die Layouts, die wir
         // gegen die Spec prüfen. Audio-Chunks nur anreißen.
         let limit = frame.count <= 64 ? frame.count : 16
@@ -79,8 +93,6 @@ final class TracingTransport: DeviceTransport, @unchecked Sendable {
         let tail = frame.count > limit
             ? " … \(String(format: "%02x", frame[frame.index(before: frame.endIndex)]))"
             : ""
-        FileHandle.standardError.write(Data(
-            "\(direction) op=\(opcode) len=\(frame.count)  \(head)\(tail)\n".utf8
-        ))
+        FileHandle.standardError.write(Data("\(direction) \(label)  \(head)\(tail)\n".utf8))
     }
 }

@@ -37,8 +37,9 @@ enum D3200CTL {
             let formatter = ISO8601DateFormatter()
             for recording in recordings {
                 print(String(
-                    format: "  %08x  %8d B  %@",
-                    recording.fileID, recording.size, formatter.string(from: recording.recordedAt)
+                    format: "  %08x  %7.1f s  %4d Frames  %@",
+                    recording.fileID, recording.duration, recording.frameCount,
+                    formatter.string(from: recording.recordedAt)
                 ))
             }
 

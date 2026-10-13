@@ -5,6 +5,8 @@ import Testing
 
 @Suite("RCSP-Framing und Command-Layouts")
 struct FrameTests {
+    // MARK: - Checksum und Command-Hülle
+
     @Test("XOR-Checksum über die Payload")
     func xorChecksum() {
         // Payload-Präfix des Time-Sync-Commands: 00^01^A6^14^00
@@ -23,37 +25,67 @@ struct FrameTests {
         #expect(frame.last == RCSPFrame.checksum(payload))
     }
 
-    /// Am Gerät beobachtete Ack-Frames – identisch mit session_4b4a7b69.json.
-    @Test("Ack-Frames von Auth und Time-Sync tragen keinen gelisteten Opcode")
-    func acknowledgementFrames() throws {
-        let auth = try #require(Data(hex: "09ff0000010b030a0021"))
-        let timeSync = try #require(Data(hex: "09ff00000101a60a00ba"))
+    // MARK: - Response-Kopf (Gruppe / Typ / Länge)
 
-        #expect(RCSPFrame.isResponse(auth))
-        #expect(RCSPFrame.isResponse(timeSync))
-        // 030a bzw. a60a sind keine der in D3200Opcode gelisteten Werte:
-        // die Frames gelten nur als Bestätigung.
-        #expect(D3200Opcode(rawValue: RCSPFrame.opcode(of: auth)!) == nil)
-        #expect(D3200Opcode(rawValue: RCSPFrame.opcode(of: timeSync)!) == nil)
+    /// Am Gerät beobachtete Frames (2026-10-13). Byte 7 ist die Framelänge –
+    /// darum sind `0e14`, `0e1c` und `0e24` dieselbe Nachricht.
+    @Test("Response-Kopf: Gruppe, Typ und Länge", arguments: [
+        ("09ff0000010b030a0021", 0x0B, D3200Message.auth, 10),
+        ("09ff00000101a60a00ba", 0x01, D3200Message.timeSync, 10),
+        ("09ff0000011a0a13000084030000" + "4b4a7b69" + "40", 0x1A, D3200Message.transferComplete, 19),
+    ])
+    func responseHeader(hex: String, group: Int, message: D3200Message, length: Int) throws {
+        let frame = try #require(Data(hex: hex))
+        let response = try #require(RCSPFrame.Response(frame: frame))
+
+        #expect(response.group == UInt8(group))
+        #expect(response.type == message.rawValue)
+        #expect(response.message == message)
+        #expect(Int(response.declaredLength) == length)
+        #expect(response.frame.count == length)
+        #expect(response.hasConsistentLength)
     }
 
-    @Test("Opcode liegt auf Offset 6 der Response")
-    func opcodeOffset() throws {
-        let header = try Fixture.fileHeaderResponse()
-        #expect(RCSPFrame.isResponse(header))
-        #expect(RCSPFrame.opcode(of: header) == D3200Opcode.fileDetail.rawValue)
-        #expect(RCSPFrame.opcode(of: Data([0x09, 0xFF, 0x00])) == nil)
+    /// Ersetzt die Integritätsprüfung, die Responses mangels Checksum nicht haben.
+    @Test("Längenangabe aus Offset 7 deckt einen inkonsistenten Frame auf")
+    func inconsistentLengthIsDetected() throws {
+        let frame = try #require(Data(hex: "09ff0000010b030a002100"))  // gibt 10 an, ist 11
+        let response = try #require(RCSPFrame.Response(frame: frame))
+
+        #expect(response.declaredLength == 10)
+        #expect(response.frame.count == 11)
+        #expect(!response.hasConsistentLength)
     }
+
+    @Test("Zu kurzer Frame und Command-Präfix ergeben keine Response")
+    func rejectsNonResponses() {
+        #expect(RCSPFrame.Response(frame: Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x0E])) == nil)
+        #expect(RCSPFrame.Response(frame: Data(hex: "08ee000000010203")!) == nil)
+        #expect(RCSPFrame.Response(frame: Data()) == nil)
+    }
+
+    @Test("File-Header-Fixture trägt Typ 0x07 und Länge 97")
+    func fileHeaderResponseShape() throws {
+        let frame = try Fixture.fileHeaderResponse()
+        let response = try #require(RCSPFrame.Response(frame: frame))
+
+        #expect(response.group == 0x1A)
+        #expect(response.message == .fileDetail)
+        #expect(response.declaredLength == 97)
+        #expect(response.hasConsistentLength)
+    }
+
+    // MARK: - Commands
 
     /// Achtung: Der in `docs/d3200_protocol_spec.md` §4 angegebene Base64-Token
-    /// dekodiert zu **19** Byte, nicht zu den dort genannten 20. Maßgeblich ist
-    /// die Byte-Folge aus dem Mitschnitt, daher wird hier 19 festgeschrieben.
+    /// dekodiert zu **19** Byte, nicht zu den dort ursprünglich genannten 20.
     @Test("Auth-Command: 6 B Präfix-Payload, 19 B Token, Abschluss 0x15")
     func authCommand() {
         let frame = D3200Commands.auth()
         #expect(D3200Commands.authToken.count == 19)
         #expect(D3200Commands.authToken.hexString == "0190f151b0b4c444cd002f47d7a69c5efb4b79")
         #expect(frame.count == 4 + 26 + 1)
+
         let payload = Data(frame.dropFirst(4).dropLast())
         #expect(payload.prefix(6) == Data([0x00, 0x0B, 0x03, 0x27, 0x00, 0x1C]))
         #expect(Data(payload.dropFirst(6).dropLast()) == D3200Commands.authToken)
@@ -64,6 +96,7 @@ struct FrameTests {
     func timeSyncCommand() {
         let date = Date(timeIntervalSince1970: 1_769_687_627)
         let payload = Data(D3200Commands.timeSync(date: date).dropFirst(4).dropLast())
+
         #expect(payload.count == 15)
         #expect(payload.prefix(5) == Data([0x00, 0x01, 0xA6, 0x14, 0x00]))
         #expect(payload.littleEndianUInt32(at: 5) == 1_769_687_627)
@@ -79,6 +112,7 @@ struct FrameTests {
     @Test("File-Detail-Command trägt die file_id als LE32")
     func fileDetailCommand() {
         let payload = Data(D3200Commands.fileDetail(fileID: 0x697B_4A4B).dropFirst(4).dropLast())
+
         #expect(payload.count == 13)
         #expect(payload.prefix(9) == Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00]))
         #expect(Data(payload.suffix(4)) == Data([0x4B, 0x4A, 0x7B, 0x69]))
@@ -88,79 +122,127 @@ struct FrameTests {
     func keyExchangeCommand() throws {
         let publicKey = try #require(Data(hex: Fixture.session().ourPublicKey))
         #expect(publicKey.count == 64)
+
         let payload = Data(D3200Commands.keyExchange(publicKey: publicKey).dropFirst(4).dropLast())
         #expect(payload.count == 70)
         #expect(payload.prefix(6) == Data([0x00, 0x2E, 0x01, 0x4B, 0x00, 0x04]))
         #expect(Data(payload.suffix(64)) == publicKey)
     }
 
-    /// Echter Frame vom eigenen Gerät (2026-10-13). Die Spec nennt Opcode
-    /// `0e0c` und Offset 10 – beides sind die Command-Bytes; das Gerät
-    /// antwortet mit `0e1c` und Einträgen ab Offset 11.
-    static let liveFileListResponse = Data(hex:
-        "09ff0000011a0e1c00" +   // Präfix, Flag, Gruppe 1a, Opcode 0e1c, 00
-        "0100" +                 // Eintragszähler LE16 = 1
-        "4b4a7b69" +             // file_id LE32 = 0x697b4a4b
-        "84030000" +             // size LE32 = 900
-        "0000000000000000" +     // Reserve bzw. Padding
-        "4e"                     // Checksum
-    )!
+    /// Commands tragen dieselbe Struktur wie Responses: `00 group type sub …`.
+    @Test("Command-Gruppe und -Typ spiegeln sich im Response-Kopf")
+    func commandMirrorsResponseHeader() throws {
+        let detail = Data(D3200Commands.fileDetail(fileID: 0).dropFirst(4))
+        let header = try #require(RCSPFrame.Response(frame: try Fixture.fileHeaderResponse()))
 
-    @Test("Live-Listen-Antwort: Opcode 0e1c, ein Eintrag mit 900 B")
-    func liveFileListParsing() {
-        let response = Self.liveFileListResponse
-        #expect(response.count == 28)
-        #expect(RCSPFrame.opcode(of: response) == D3200Opcode.fileList.rawValue)
-        #expect(D3200Recording.declaredCount(response: response) == 1)
-
-        let recordings = D3200Recording.parseList(response: response)
-        #expect(recordings.count == 1)
-        #expect(recordings.first?.fileID == 0x697B_4A4B)
-        #expect(recordings.first?.size == 900)
-        // file_id ist der Aufnahme-Timestamp
-        #expect(recordings.first?.recordedAt == Date(timeIntervalSince1970: 1_769_687_627))
+        #expect(detail[1] == header.group)  // 0x1a
+        #expect(detail[2] == header.type)   // 0x07
     }
 
-    @Test("Dateiliste: Müll und Reservebytes werden verworfen")
-    func fileListRejectsImplausibleEntries() {
-        var response = Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x0E, 0x1C, 0x00, 0x02, 0x00])
-        response.append(littleEndian: UInt32(0x697B_4A4B))  // plausible file_id
-        response.append(littleEndian: UInt32(7470))
-        response.append(littleEndian: UInt32(42))            // unplausibel: zu kleine id
-        response.append(littleEndian: UInt32(100))
-        response.append(0x00)                                // Checksum
+    // MARK: - Dateiliste
 
-        let recordings = D3200Recording.parseList(response: response)
+    /// Echte Frames vom eigenen Gerät (2026-10-13), einmal mit einer und
+    /// einmal mit zwei Aufnahmen. Byte 7 wächst mit (28 → 36), der Typ 0x0e
+    /// bleibt – das belegt zugleich die Schrittweite 8 der Einträge.
+    static let liveListOneEntry = Data(hex:
+        "09ff0000011a0e1c00" +            // Präfix, Flag, Gruppe 1a, Typ 0e, Länge 28
+        "0100" +                          // Eintragszähler LE16 = 1
+        "4b4a7b69" + "84030000" +         // file_id, size = 900
+        "0000000000000000" + "4e"         // Padding, Rest
+    )!
+
+    static let liveListTwoEntries = Data(hex:
+        "09ff0000011a0e2400" +            // Länge 36
+        "0200" +                          // Eintragszähler LE16 = 2
+        "4b4a7b69" + "84030000" +         // Aufnahme 1: 2026-01-29,   900 B
+        "9296ce6a" + "f4330000" +         // Aufnahme 2: 2026-10-13, 13300 B
+        "0000000000000000" + "de"         // Padding, Rest
+    )!
+
+    @Test("Listen-Antwort mit einem Eintrag")
+    func liveListOneEntryParsing() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.liveListOneEntry))
+        #expect(response.message == .fileList)
+        #expect(response.declaredLength == 28)
+        #expect(response.hasConsistentLength)
+        #expect(D3200Recording.declaredCount(response: Self.liveListOneEntry) == 1)
+
+        let recordings = D3200Recording.parseList(response: Self.liveListOneEntry)
         #expect(recordings.count == 1)
-        #expect(recordings.first?.fileID == 0x697B_4A4B)
+        #expect(recordings[0].fileID == 0x697B_4A4B)
+        #expect(recordings[0].durationMilliseconds == 900)
+        #expect(recordings[0].duration == 0.9)
+        #expect(recordings[0].frameCount == 45)
+        #expect(recordings[0].recordedAt == Date(timeIntervalSince1970: 1_769_687_627))
+    }
+
+    /// Der Frame, der die Schrittweite entschieden hat: zwei Einträge liegen
+    /// direkt hintereinander auf Offset 11 und 19.
+    @Test("Listen-Antwort mit zwei Einträgen belegt Schrittweite 8")
+    func liveListTwoEntriesParsing() throws {
+        let response = try #require(RCSPFrame.Response(frame: Self.liveListTwoEntries))
+        #expect(response.message == .fileList)
+        #expect(response.declaredLength == 36)
+        #expect(response.hasConsistentLength)
+        // Gleiche Nachricht, nur länger – darum darf nicht auf 6/7 dispatcht werden.
+        #expect(response.type == Self.liveListOneEntry[6])
+        #expect(D3200Recording.declaredCount(response: Self.liveListTwoEntries) == 2)
+
+        let recordings = D3200Recording.parseList(response: Self.liveListTwoEntries)
+        #expect(recordings.count == 2)
+        #expect(recordings[0].fileID == 0x697B_4A4B)
+        #expect(recordings[0].durationMilliseconds == 900)
+        // 665 Pakete à 20 ms – am Gerät heruntergeladen und von ffprobe
+        // mit 13,3 s bestätigt.
+        #expect(recordings[1].fileID == 0x6ACE_9692)
+        #expect(recordings[1].durationMilliseconds == 13300)
+        #expect(recordings[1].duration == 13.3)
+        #expect(recordings[1].frameCount == 665)
+        #expect(recordings[1].recordedAt == Date(timeIntervalSince1970: 1_791_923_858))
+    }
+
+    @Test("Padding hinter den Einträgen wird nicht als Eintrag gelesen")
+    func paddingIsNotAnEntry() {
+        #expect(D3200Recording.parseList(response: Self.liveListOneEntry).count == 1)
+        #expect(D3200Recording.parseList(response: Self.liveListTwoEntries).count == 2)
     }
 
     @Test("Leere Listenseite liefert keine Einträge")
-    func emptyFileListPage() {
-        let response = Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x0E, 0x1C, 0x00, 0x00, 0x00, 0x00])
-        #expect(D3200Recording.parseList(response: response).isEmpty)
-        #expect(D3200Recording.declaredCount(response: response) == 0)
+    func emptyFileListPage() throws {
+        let frame = try #require(Data(hex: "09ff0000011a0e1400" + "0000" + "000000000000000000"))
+        #expect(frame.count == 20)
+        #expect(D3200Recording.declaredCount(response: frame) == 0)
+        #expect(D3200Recording.parseList(response: frame).isEmpty)
     }
 
-    /// Die Checksum darf nie als Eintragsanfang gelesen werden.
-    @Test("Antwort ohne Einträge, aber mit Checksum, bleibt leer")
-    func checksumIsNotAnEntry() {
-        let response = Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x0E, 0x1C, 0x00, 0x00, 0x00]) + Data([0x4E])
-        #expect(D3200Recording.parseList(response: response).isEmpty)
+    @Test("Unplausible Einträge werden verworfen")
+    func fileListRejectsImplausibleEntries() {
+        var frame = Data([0x09, 0xFF, 0x00, 0x00, 0x01, 0x1A, 0x0E, 0x1C, 0x00, 0x02, 0x00])
+        frame.append(littleEndian: UInt32(0x697B_4A4B))  // plausible file_id
+        frame.append(littleEndian: UInt32(900))          // Dauer in ms
+        frame.append(littleEndian: UInt32(42))           // unplausibel: zu kleine id
+        frame.append(littleEndian: UInt32(100))
+
+        let recordings = D3200Recording.parseList(response: frame)
+        #expect(recordings.count == 1)
+        #expect(recordings[0].fileID == 0x697B_4A4B)
     }
+
+    // MARK: - Audio-Chunks
 
     /// Am Gerät verifiziert: 45 Chunks à 176 B. Ab Offset 12 steht ein
     /// kompletter 164-Byte-Frame des Rohformats, Offset 9 der Frame-Zähler.
     @Test("Audio-Chunk: 176 B Frame liefert 164 B Rohframe")
-    func audioChunkPayload() {
-        let head = Data(hex: "09ff0000011a08b000")!   // Präfix, Flag, Gruppe, Opcode, 00
-        let sequence = Data([0x2C])                    // Frame-Zähler 44
-        let filler = Data([0x00, 0x00])                // Offset 10/11
+    func audioChunkPayload() throws {
+        let head = try #require(Data(hex: "09ff0000011a08b000"))
         let rawFrame = Data([0x00, 0x04]) + Data(repeating: 0x5A, count: 160) + Data([0xC8, 0x12])
-        let frame = head + sequence + filler + rawFrame
+        let frame = head + Data([0x2C]) + Data([0x00, 0x00]) + rawFrame
 
+        let response = try #require(RCSPFrame.Response(frame: frame))
         #expect(frame.count == 176)
-        #expect(RCSPFrame.opcode(of: frame) == D3200Opcode.audioChunk.rawValue)
+        #expect(response.message == .audioChunk)
+        #expect(response.declaredLength == 176)
+        #expect(response.hasConsistentLength)
         #expect(D3200Client.chunkSequence(of: frame) == 44)
 
         let payload = D3200Client.audioPayload(from: frame)
@@ -170,15 +252,14 @@ struct FrameTests {
         #expect(payload.prefix(2) == Data([0x00, 0x04]))
     }
 
-    /// Am Gerät beobachtet: `09ff0000011a0a1300` + Größe LE32 + file_id LE32.
+    /// Am Gerät beobachtet: Größe LE32 auf Offset 10, danach die file_id.
     @Test("Transfer-Complete trägt Größe auf Offset 10 und die file_id")
     func transferCompleteLayout() throws {
         let frame = try #require(Data(hex: "09ff0000011a0a13000084030000" + "4b4a7b69" + "40"))
+        let response = try #require(RCSPFrame.Response(frame: frame))
 
-        #expect(frame.count == 19)
-        #expect(RCSPFrame.opcode(of: frame) == D3200Opcode.transferComplete.rawValue)
-        #expect(frame.littleEndianUInt32(at: D3200Opcode.transferComplete.payloadOffset) == 900)
+        #expect(response.message == .transferComplete)
+        #expect(frame.littleEndianUInt32(at: D3200Message.transferComplete.payloadOffset) == 900)
         #expect(frame.littleEndianUInt32(at: 14) == 0x697B_4A4B)
     }
-
 }

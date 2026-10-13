@@ -149,8 +149,11 @@ struct CryptoTests {
         #expect(header.encryptedFileKey.count == 46)
         #expect(header.status == 0x00)
         #expect(header.checksum == 0x0D)
-        // file_id ist der Aufnahme-Timestamp
-        #expect(D3200Recording(fileID: header.fileID, size: header.fileSize).isPlausible)
+
+        // fileSize ist frameCount * 166; über BLE kommen 164 B pro Frame.
+        #expect(header.frameCount == 45)
+        #expect(header.expectedRawBytes == 7380)
+        #expect(header.duration == 0.9)
     }
 
     @Test("Zu kurzer File-Header wird abgewiesen")

@@ -51,3 +51,6 @@ Screenshots/video/.raw-*.mp4
 Screenshots/video/.norm-*.mp4
 
 __pycache__/
+
+# Store-Marketing-Assets der Store-App – in diesem Projekt nicht gebraucht
+assets/

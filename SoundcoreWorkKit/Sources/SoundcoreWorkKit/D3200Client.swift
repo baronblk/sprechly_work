@@ -29,11 +29,13 @@ public actor D3200Client {
     public enum ClientError: Error, LocalizedError, Equatable {
         case notConnected
         case keyExchangeMissing
-        case unexpectedFrame(opcode: UInt16?)
+        case unexpectedMessage(group: UInt8, type: UInt8)
+        case malformedFrame(declared: UInt8, actual: Int)
         case chunkOutOfOrder(expected: UInt8, got: UInt8)
         case streamEnded
         case concurrentRead
         case incompleteAudio(bytes: Int)
+        case truncatedTransfer(got: Int, expected: Int)
 
         public var errorDescription: String? {
             switch self {
@@ -41,12 +43,11 @@ public actor D3200Client {
                 "Client ist nicht verbunden – zuerst connect() aufrufen."
             case .keyExchangeMissing:
                 "ECDH-Handshake fehlt – performKeyExchange() vor dem Download aufrufen."
-            case .unexpectedFrame(let opcode):
-                if let opcode {
-                    "Unerwarteter Frame mit Opcode 0x\(String(opcode, radix: 16, uppercase: false))."
-                } else {
-                    "Unerwarteter, zu kurzer Frame."
-                }
+            case .unexpectedMessage(let group, let type):
+                "Unerwartete Nachricht (Gruppe 0x\(String(group, radix: 16)), "
+                    + "Typ 0x\(String(type, radix: 16)))."
+            case .malformedFrame(let declared, let actual):
+                "Frame gibt \(declared) Byte an, hat aber \(actual)."
             case .streamEnded:
                 "Die Verbindung wurde während des Transfers beendet."
             case .concurrentRead:
@@ -56,6 +57,8 @@ public actor D3200Client {
             case .incompleteAudio(let bytes):
                 "Audio-Stream endete mit \(bytes) Byte und ist kein Vielfaches von "
                     + "\(D3200Crypto.rawFrameSize)."
+            case .truncatedTransfer(let got, let expected):
+                "Transfer unvollständig: \(got) von \(expected) Byte."
             }
         }
     }
@@ -107,13 +110,13 @@ public actor D3200Client {
     /// Schritt 2: Auth mit statischem Token.
     public func authenticate() async throws {
         try await transport.send(D3200Commands.auth())
-        _ = try await nextFrame()
+        _ = try await nextMessage(expecting: [.auth])
     }
 
     /// Schritt 3: Time-Sync.
     public func syncTime(date: Date = Date()) async throws {
         try await transport.send(D3200Commands.timeSync(date: date))
-        _ = try await nextFrame()
+        _ = try await nextMessage(expecting: [.timeSync])
     }
 
     /// Schritt 4: Dateiliste, paginiert bis zur ersten leeren Seite.
@@ -121,9 +124,9 @@ public actor D3200Client {
         var recordings: [D3200Recording] = []
         for page in 0 ..< maxPages {
             try await transport.send(D3200Commands.listFiles(page: UInt8(truncatingIfNeeded: page)))
-            let frame = try await nextFrame(expecting: [.fileList, .fileListEnd])
-            if RCSPFrame.opcode(of: frame) == D3200Opcode.fileListEnd.rawValue { break }
-            let items = D3200Recording.parseList(response: frame)
+            let response = try await nextMessage(expecting: [.fileList])
+            let items = D3200Recording.parseList(response: response.frame)
+            // Eine leere Seite beendet die Liste.
             if items.isEmpty { break }
             recordings.append(contentsOf: items)
         }
@@ -138,8 +141,8 @@ public actor D3200Client {
         try await transport.send(
             D3200Commands.keyExchange(publicKey: D3200Crypto.rawPublicKey(privateKey))
         )
-        let frame = try await nextFrame(expecting: [.keyExchange])
-        let devicePublicKey = try D3200Crypto.parseDevicePublicKey(from: frame)
+        let response = try await nextMessage(expecting: [.keyExchange])
+        let devicePublicKey = try D3200Crypto.parseDevicePublicKey(from: response.frame)
         let shared = try D3200Crypto.sharedSecret(
             privateKey: privateKey,
             devicePublicKey: devicePublicKey
@@ -150,8 +153,8 @@ public actor D3200Client {
 
     /// Schritte 6–8: Detail anfordern, Chunks sammeln, entschlüsseln.
     ///
-    /// - Parameter progress: `(empfangene Bytes, laut File-Header erwartete Bytes)`.
-    ///   Die erwartete Größe ist die Angabe des Geräts und nur eine Näherung.
+    /// - Parameter progress: `(empfangene Bytes, erwartete Bytes)`. Die erwartete
+    ///   Zahl ist exakt: `frameCount * 164` aus dem File-Header.
     public func download(
         fileID: UInt32,
         progress: (@Sendable (Int, Int) -> Void)? = nil
@@ -160,28 +163,28 @@ public actor D3200Client {
 
         try await transport.send(D3200Commands.fileDetail(fileID: fileID))
 
-        let headerFrame = try await nextFrame(expecting: [.fileDetail])
-        let header = try D3200FileHeader(response: headerFrame)
+        let headerMessage = try await nextMessage(expecting: [.fileDetail])
+        let header = try D3200FileHeader(response: headerMessage.frame)
         let fileKey = try D3200Crypto.unwrapFileKey(header: header, sessionKey: sessionKey)
         logger.info("File-Key entpackt (file_id=\(header.fileID), size=\(header.fileSize))")
 
         var raw = Data()
         var chunkIndex = 0
         collect: while true {
-            let frame = try await nextFrame(expecting: [.audioChunk, .transferComplete, .transferInit])
-            switch RCSPFrame.opcode(of: frame).flatMap(D3200Opcode.init(rawValue:)) {
+            let response = try await nextMessage(expecting: [.audioChunk, .transferComplete, .transferInit])
+            switch response.message {
             case .audioChunk:
                 // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
                 // Byte breit und läuft nach 256 Frames über.
                 let expected = UInt8(truncatingIfNeeded: chunkIndex)
-                if let sequence = Self.chunkSequence(of: frame), sequence != expected {
+                if let sequence = Self.chunkSequence(of: response.frame), sequence != expected {
                     throw ClientError.chunkOutOfOrder(expected: expected, got: sequence)
                 }
-                raw.append(Self.audioPayload(from: frame))
+                raw.append(Self.audioPayload(from: response.frame))
                 chunkIndex += 1
-                progress?(raw.count, Int(header.fileSize))
+                progress?(raw.count, header.expectedRawBytes)
             case .transferComplete:
-                let size = frame.littleEndianUInt32(at: D3200Opcode.transferComplete.payloadOffset)
+                let size = response.frame.littleEndianUInt32(at: D3200Message.transferComplete.payloadOffset)
                 logger.info("Transfer fertig, Gerät meldet Größe \(size ?? 0)")
                 break collect
             default:
@@ -191,6 +194,11 @@ public actor D3200Client {
 
         guard raw.count % D3200Crypto.rawFrameSize == 0, !raw.isEmpty else {
             throw ClientError.incompleteAudio(bytes: raw.count)
+        }
+        // Der File-Header gibt die Frameanzahl vor; damit fällt ein abgebrochener
+        // Transfer auf, statt eine zu kurze Aufnahme zu liefern.
+        guard raw.count == header.expectedRawBytes else {
+            throw ClientError.truncatedTransfer(got: raw.count, expected: header.expectedRawBytes)
         }
 
         // Die Chunks sind exakt das gespeicherte Rohformat, daher derselbe
@@ -211,7 +219,7 @@ public actor D3200Client {
     /// Roh-Stream der Referenz-Aufnahme. Ein Checksum-Byte am Frame-Ende gibt
     /// es nicht; die Nutzlast reicht bis zum letzten Byte.
     static func audioPayload(from frame: Data) -> Data {
-        Data(frame.dropFirst(D3200Opcode.audioChunk.payloadOffset))
+        Data(frame.dropFirst(D3200Message.audioChunk.payloadOffset))
     }
 
     /// Frame-Zähler eines `08b0`-Chunks (Offset 9, beginnt bei 0).
@@ -246,25 +254,35 @@ public actor D3200Client {
         continuation.resume(throwing: TransportError.timedOut)
     }
 
-    /// Nächster Frame; überspringt Metadaten-Pushes (Spec §2).
-    private func nextFrame() async throws -> Data {
+    /// Nächste Nachricht; überspringt unaufgeforderte Metadaten-Pushes und
+    /// prüft die Längenangabe aus Offset 7.
+    private func nextMessage() async throws -> RCSPFrame.Response {
         while true {
             let frame = try await rawFrame()
-            if RCSPFrame.opcode(of: frame) == D3200Opcode.metadataPush.rawValue { continue }
-            return frame
+            guard let response = RCSPFrame.Response(frame: frame) else {
+                logger.warning("Frame zu kurz für einen Response-Kopf (\(frame.count) B)")
+                continue
+            }
+            guard response.hasConsistentLength else {
+                throw ClientError.malformedFrame(
+                    declared: response.declaredLength,
+                    actual: response.frame.count
+                )
+            }
+            if response.message == .metadataPush { continue }
+            return response
         }
     }
 
-    /// Nächster Frame mit einem der erwarteten Opcodes; Pushes werden übersprungen.
-    private func nextFrame(expecting opcodes: Set<D3200Opcode>) async throws -> Data {
-        while true {
-            let frame = try await nextFrame()
-            let raw = RCSPFrame.opcode(of: frame)
-            guard let opcode = raw.flatMap(D3200Opcode.init(rawValue:)), opcodes.contains(opcode) else {
-                throw ClientError.unexpectedFrame(opcode: raw)
-            }
-            return frame
+    /// Nächste Nachricht eines der erwarteten Typen; Pushes werden übersprungen.
+    private func nextMessage(
+        expecting types: Set<D3200Message>
+    ) async throws -> RCSPFrame.Response {
+        let response = try await nextMessage()
+        guard let message = response.message, types.contains(message) else {
+            throw ClientError.unexpectedMessage(group: response.group, type: response.type)
         }
+        return response
     }
 
     private func rawFrame() async throws -> Data {
