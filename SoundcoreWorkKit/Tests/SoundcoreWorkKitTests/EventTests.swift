@@ -204,6 +204,7 @@ struct DeleteCommandTests {
     func buildsDeleteCommand() {
         let frame = D3200Commands.deleteRecording(fileID: 0x697B_4A4B)
 
+        // Am Gerät verifiziert: diese kurze Form löscht wirklich.
         #expect(frame.count == 14)
         #expect(frame.prefix(4) == Data([0x08, 0xEE, 0x00, 0x00]))
         #expect(frame[5] == 0x1A)

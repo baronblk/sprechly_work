@@ -134,7 +134,7 @@ Implementieren einmal gegen das reale Gerät gegenprüfen.
 | Record Pause | 0x18 | 0x82 | `02` |
 | Dateiliste | 0x1A | 0x0E | u16LE(page) |
 | Dateiliste (alt) | 0x1B | 0x0E | u16LE(page) |
-| Datei löschen | 0x1A | 0x10 | u32LE(fileId) |
+| Datei löschen | 0x1A | 0x10 | u32LE(fileId) – **am Gerät verifiziert**, siehe §7d |
 | BT-Transport starten | 0x1A | 0x0F | `00` (iOS: `01`) |
 | BT-Transport stoppen | 0x1A | 0x11 | `00` (iOS: `01`) |
 | Datei-Transfer (Download) | 0x1A | 0x07 | fileId + realtimeFlag |
@@ -390,6 +390,26 @@ Live-Pegel oder Live-Audio gibt es daher **nur** über den Realtime-BLE-Stream:
 
 > Ohne diesen Stream gibt es systembedingt keinen Pegel – das ist ein zu bauendes
 > Feature, kein Bug.
+
+## 7d. Aufnahme löschen – am Gerät verifiziert (2026-10-14)
+
+```
+→ 08 ee 00 00 00 1a 10 0e 00 31 b2 ce 6a <xor>   löscht 6aceb231
+← 09 ff 00 00 01 1a 10 0a 00 ..                  Bestätigung, 10 B
+```
+
+14-Byte-Command: Gruppe `0x1a`, Typ `0x10`, Länge auf Offset 7, danach ein
+Nullbyte und die `file_id` als LE32. Die vier Füllbytes der
+Download-Anforderung braucht es hier **nicht**.
+
+> **Eigenheit:** Das Gerät bestätigt sofort, aber die Dateiliste zeigt die
+> Aufnahme noch eine Weile weiter. Direkt nach der Bestätigung neu aufzulisten
+> liefert sie unverändert mit – gelöscht ist sie trotzdem; beim nächsten
+> Verbinden fehlt sie. Eine Oberfläche darf sich deshalb nicht auf ein
+> sofortiges Neuladen verlassen, sondern muss den Eintrag selbst entfernen.
+>
+> Genau daran wäre die Prüfung fast gescheitert: Der erste Versuch galt als
+> wirkungslos, weil die Liste unmittelbar danach noch 22 Einträge zeigte.
 
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**

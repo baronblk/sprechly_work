@@ -64,8 +64,13 @@ public enum D3200Commands {
     /// Löscht eine Aufnahme auf dem Gerät – **unwiderruflich**.
     ///
     /// Gruppe `0x1a`, Typ `0x10` mit der `file_id` als LE32
-    /// (`docs/d3200_protocol_spec.md` §4). Das Gerät bestätigt auf
-    /// derselben Gruppe/Typ.
+    /// (`docs/d3200_protocol_spec.md` §4), 14 Byte.
+    ///
+    /// Am Gerät verifiziert, mit einer Eigenheit: Das Gerät bestätigt sofort,
+    /// aber die **Dateiliste zeigt die Aufnahme noch eine Weile weiter**. Wer
+    /// direkt nach der Bestätigung neu auflistet, sieht sie unverändert –
+    /// gelöscht ist sie trotzdem. Die Oberfläche darf sich daher nicht auf ein
+    /// sofortiges Neuladen verlassen, sondern entfernt die Zeile selbst.
     public static func deleteRecording(fileID: UInt32) -> Data {
         var payload = Data([0x00, 0x1A, 0x10, 0x0E, 0x00])
         payload.append(littleEndian: fileID)
