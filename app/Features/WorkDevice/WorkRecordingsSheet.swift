@@ -8,6 +8,8 @@ struct WorkRecordingsSheet: View {
     @Environment(WorkDeviceViewModel.self) private var work
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    /// Aufnahme, für die gerade nachgefragt wird.
+    @State private var pendingDeletion: WorkRecordingItem?
 
     var body: some View {
         Group {
@@ -41,6 +43,26 @@ struct WorkRecordingsSheet: View {
         .task {
             if work.items.isEmpty { await work.reloadList() }
         }
+        .confirmationDialog(
+            Text("Aufnahme auf dem Work löschen?"),
+            isPresented: .init(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { item in
+            Button(role: .destructive) {
+                let target = item
+                pendingDeletion = nil
+                Task { await work.deleteRecording(target) }
+            } label: {
+                Text("Löschen")
+            }
+            Button(role: .cancel) { pendingDeletion = nil } label: { Text("Abbrechen") }
+        } message: { item in
+            Text("\(TimeFormatting.timecode(item.recording.duration)) vom Gerät entfernen. Das lässt sich nicht rückgängig machen. Bereits importierte Aufnahmen bleiben in der Bibliothek.")
+        }
     }
 
     private var list: some View {
@@ -49,6 +71,15 @@ struct WorkRecordingsSheet: View {
                 ForEach(work.items) { item in
                     WorkRecordingRow(item: item) {
                         Task { await work.importRecording(item, context: modelContext) }
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            pendingDeletion = item
+                        } label: {
+                            Label { Text("Auf dem Work löschen") } icon: {
+                                Image(systemName: "trash")
+                            }
+                        }
                     }
                 }
 
@@ -62,7 +93,7 @@ struct WorkRecordingsSheet: View {
                     .padding(.top, Theme.Spacing.sm)
                 }
 
-                Text("Importierte Aufnahmen liegen danach in der Bibliothek.")
+                Text("Importierte Aufnahmen liegen danach in der Bibliothek. Zum Löschen eine Zeile gedrückt halten.")
                     .font(.caption)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .padding(.top, Theme.Spacing.xs)

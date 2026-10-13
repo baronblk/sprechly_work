@@ -61,6 +61,17 @@ public enum D3200Commands {
     /// Ladezustand von Gerät und Ladecase (§7b).
     public static func charging() -> Data { query(.charging) }
 
+    /// Löscht eine Aufnahme auf dem Gerät – **unwiderruflich**.
+    ///
+    /// Gruppe `0x1a`, Typ `0x10` mit der `file_id` als LE32
+    /// (`docs/d3200_protocol_spec.md` §4). Das Gerät bestätigt auf
+    /// derselben Gruppe/Typ.
+    public static func deleteRecording(fileID: UInt32) -> Data {
+        var payload = Data([0x00, 0x1A, 0x10, 0x0E, 0x00])
+        payload.append(littleEndian: fileID)
+        return RCSPFrame.command(payload: payload)
+    }
+
     /// Fernsteuerung der Aufnahme am Gerät.
     ///
     /// Gruppe `0x18`, Typ `0x82` mit einem Nutzbyte – aus dem Community-Repo

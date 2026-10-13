@@ -297,3 +297,67 @@ enum ScriptedTransportReply {
         }
     }
 }
+
+/// Fällt die Verbindung weg – etwa weil Bluetooth abgeschaltet wird –, muss
+/// die Oberfläche das erfahren. Sonst steht das Gerät weiter als verbunden da.
+@Suite("Client: Verbindungsverlust")
+struct ClientConnectionLossTests {
+    private final class ClosableTransport: DeviceTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sinks: [UUID: AsyncStream<Data>.Continuation] = [:]
+
+        func connect() async throws {}
+        func send(_ frame: Data) async throws {}
+
+        func notifications() -> AsyncStream<Data> {
+            let id = UUID()
+            return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+                lock.withLock { sinks[id] = continuation }
+                continuation.onTermination = { [weak self] _ in
+                    self?.lock.withLock { self?.sinks[id] = nil }
+                }
+            }
+        }
+
+        /// Wie CoreBluetooth beim Abschalten: die Ströme enden einfach.
+        func disconnect() async { closeStreams() }
+
+        func closeStreams() {
+            let sinks = lock.withLock {
+                let snapshot = Array(self.sinks.values)
+                self.sinks.removeAll()
+                return snapshot
+            }
+            for sink in sinks { sink.finish() }
+        }
+    }
+
+    @Test("Endet der Frame-Strom, enden auch die Ereignisse")
+    func eventStreamEndsWithTheConnection() async throws {
+        let transport = ClosableTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+        let events = await client.events()
+
+        // Bluetooth aus: der Transport schließt seine Ströme.
+        transport.closeStreams()
+
+        // Die Schleife muss zurückkommen, statt ewig zu warten.
+        var eventCount = 0
+        for await _ in events { eventCount += 1 }
+        #expect(eventCount == 0)
+    }
+
+    @Test("Nach dem Verlust schlägt ein Befehl fehl, statt zu hängen")
+    func commandFailsAfterLoss() async throws {
+        let transport = ClosableTransport()
+        let client = D3200Client(transport: transport)
+        try await client.connect()
+        transport.closeStreams()
+        try await Task.sleep(for: .milliseconds(20))
+
+        await #expect(throws: (any Error).self) {
+            _ = try await client.fetchDeviceInfo()
+        }
+    }
+}

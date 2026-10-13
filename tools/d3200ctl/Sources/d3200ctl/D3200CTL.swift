@@ -80,6 +80,24 @@ enum D3200CTL {
                 ))
             }
 
+            if command == "delete" {
+                guard let target = pick(requestedID, from: recordings) else {
+                    note("keine passende Aufnahme – Abbruch")
+                    await finish(client, transport, code: 1)
+                }
+                note("LÖSCHE \(String(format: "%08x", target.fileID)) – unwiderruflich")
+                do {
+                    try await client.deleteRecording(fileID: target.fileID)
+                    note("Gerät hat bestätigt")
+                } catch {
+                    note("FEHLER: \(error.localizedDescription)")
+                }
+                let danach = try await client.listRecordings()
+                note("danach \(danach.count) Aufnahmen; Ziel noch vorhanden: "
+                    + "\(danach.contains { $0.fileID == target.fileID })")
+                await finish(client, transport, code: 0)
+            }
+
             if command == "realtime" {
                 // Der Download-Befehl trägt laut Katalog `fileId + realtimeFlag`.
                 // Welches der Nullbytes das Flag ist, steht nirgends – also
@@ -379,6 +397,7 @@ enum D3200CTL {
                                        was das Gerät daraufhin meldet
       d3200ctl info                    fragt Geräte-Info, Akku und Ladezustand
                                        ab und dumpt die Antworten roh
+      d3200ctl delete <file-id-hex>    löscht eine Aufnahme – UNWIDERRUFLICH
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)

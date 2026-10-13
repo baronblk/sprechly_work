@@ -196,3 +196,41 @@ struct EventTests {
         #expect(frame.last == RCSPFrame.checksum(Data(frame.dropFirst(4).dropLast())))
     }
 }
+
+/// Löschen ist unwiderruflich – der Befehl muss exakt stimmen.
+@Suite("Aufnahme löschen")
+struct DeleteCommandTests {
+    @Test("Lösch-Command: Gruppe 0x1a, Typ 0x10, file_id als LE32")
+    func buildsDeleteCommand() {
+        let frame = D3200Commands.deleteRecording(fileID: 0x697B_4A4B)
+
+        #expect(frame.count == 14)
+        #expect(frame.prefix(4) == Data([0x08, 0xEE, 0x00, 0x00]))
+        #expect(frame[5] == 0x1A)
+        #expect(frame[6] == 0x10)
+        #expect(frame[7] == 14)  // Länge = Framelänge
+        // file_id little-endian, wie überall im Protokoll
+        #expect(Data(frame.dropFirst(9).dropLast()) == Data([0x4B, 0x4A, 0x7B, 0x69]))
+        #expect(frame.last == RCSPFrame.checksum(Data(frame.dropFirst(4).dropLast())))
+    }
+
+    @Test("Verschiedene Aufnahmen ergeben verschiedene Befehle")
+    func distinctPerRecording() {
+        #expect(D3200Commands.deleteRecording(fileID: 0x697B_4A4B)
+            != D3200Commands.deleteRecording(fileID: 0x6ACE_9692))
+    }
+
+    @Test("Der Typ kollidiert mit keinem anderen")
+    func typeIsDistinct() {
+        #expect(D3200Message(group: 0x1A, type: 0x10) == .deleteFile)
+        #expect(D3200Message.deleteFile.group == 0x1A)
+        #expect(D3200Message.deleteFile.type == 0x10)
+        // Nicht mit dem Download verwechseln.
+        #expect(D3200Message(group: 0x1A, type: 0x07) == .fileDetail)
+    }
+
+    @Test("Löschen ist kein unaufgefordertes Ereignis")
+    func notAnEvent() {
+        #expect(!D3200Event.unsolicitedTypes.contains(.deleteFile))
+    }
+}

@@ -219,6 +219,18 @@ public actor D3200Client {
         try await transport.send(D3200Commands.query(message))
     }
 
+    /// Löscht eine Aufnahme auf dem Gerät. **Nicht rückgängig zu machen.**
+    ///
+    /// Wartet die Bestätigung des Geräts ab, damit der Aufrufer weiß, ob es
+    /// wirklich weg ist – stillschweigendes Verwerfen wäre hier das Schlimmste.
+    public func deleteRecording(fileID: UInt32) async throws {
+        try await runExclusively {
+            logger.warning("lösche Aufnahme \(String(format: "%08x", fileID), privacy: .public)")
+            try await transport.send(D3200Commands.deleteRecording(fileID: fileID))
+            _ = try await nextMessage(expecting: [.deleteFile])
+        }
+    }
+
     /// Steuert die Aufnahme am Gerät fern (Spec §7a).
     ///
     /// Die Antwort kommt als unaufgefordertes Ereignis über `events()`,
@@ -365,9 +377,16 @@ public actor D3200Client {
         }
     }
 
+    /// Der Frame-Strom ist zu Ende – die Verbindung besteht nicht mehr.
+    ///
+    /// Auch die Ereignis-Abnehmer werden beendet, sonst wartete die
+    /// Oberfläche weiter auf Statusmeldungen und zeigte das Gerät
+    /// unverändert als verbunden.
     private func finishStream() {
         streamDidEnd = true
         takeWaiter()?.resume(throwing: ClientError.streamEnded)
+        for sink in eventSinks.values { sink.finish() }
+        eventSinks.removeAll()
     }
 
     private func takeWaiter() -> CheckedContinuation<Data, Error>? {

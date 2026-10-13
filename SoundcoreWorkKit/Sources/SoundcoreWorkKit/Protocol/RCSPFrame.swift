@@ -97,6 +97,8 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
     case audioChunk
     case transferComplete
     case fileList
+    /// Löschen einer Aufnahme auf dem Gerät.
+    case deleteFile
 
     // Gruppe 0x2e
     case keyExchange
@@ -107,7 +109,7 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
         case .deviceInfo, .battery, .charging, .timeSync: 0x01
         case .auth: 0x0B
         case .recordControl: 0x18
-        case .recordingState, .fileDetail, .audioChunk, .transferComplete, .fileList: 0x1A
+        case .recordingState, .fileDetail, .audioChunk, .transferComplete, .fileList, .deleteFile: 0x1A
         case .keyExchange: 0x2E
         }
     }
@@ -126,6 +128,7 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
         case .audioChunk: 0x08
         case .transferComplete: 0x0A
         case .fileList: 0x0E
+        case .deleteFile: 0x10
         case .keyExchange: 0x01
         }
     }
@@ -144,7 +147,7 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
         case .transferComplete: 10
         case .recordControl: 9        // Statusbyte; bei einem Stop danach Dauer und file_id
         case .recordingState: 9       // file_id LE32, danach ein Code (immer 2)
-        case .deviceInfo, .battery, .charging, .auth, .fileDetail, .keyExchange, .timeSync: 9
+        case .deviceInfo, .battery, .charging, .auth, .fileDetail, .keyExchange, .timeSync, .deleteFile: 9
         }
     }
 }

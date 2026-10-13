@@ -104,7 +104,26 @@ final class WorkDeviceViewModel {
                 guard let self else { return }
                 await handle(event)
             }
+            // Der Strom endet, wenn die Verbindung wegfällt – etwa weil
+            // Bluetooth abgeschaltet wurde. Ohne das bliebe „Verbunden" stehen.
+            guard let self, !Task.isCancelled else { return }
+            await handleConnectionLost()
         }
+    }
+
+    /// Die Verbindung ist von außen weggefallen (Bluetooth aus, Gerät weg).
+    private func handleConnectionLost() async {
+        guard connection != .disconnected else { return }
+        logger.info("Verbindung zum Work verloren")
+        infoTask?.cancel()
+        infoTask = nil
+        stopTicking()
+        await client?.disconnect()
+        client = nil
+        connection = .disconnected
+        liveActivity = .idle
+        deviceInfo = nil
+        items = []
     }
 
     private func handle(_ event: D3200Event) async {
@@ -262,6 +281,25 @@ final class WorkDeviceViewModel {
                 .map { WorkRecordingItem(recording: $0, importState: previous[$0.fileID] ?? .notImported) }
         } catch {
             logger.error("Liste laden fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Löschen
+
+    /// Löscht eine Aufnahme auf dem Gerät. **Unwiderruflich.**
+    ///
+    /// Die Ansicht fragt vorher nach. Bereits importierte Aufnahmen bleiben
+    /// in der Bibliothek – gelöscht wird nur die Kopie auf dem Work.
+    func deleteRecording(_ item: WorkRecordingItem) async {
+        guard let client, !item.isBusy else { return }
+        do {
+            try await client.deleteRecording(fileID: item.id)
+            items.removeAll { $0.id == item.id }
+            logger.info("Aufnahme \(item.identifierText, privacy: .public) gelöscht")
+            await refreshDeviceInfo()
+        } catch {
+            logger.error("Löschen fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
     }

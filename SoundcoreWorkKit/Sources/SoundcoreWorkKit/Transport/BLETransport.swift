@@ -179,14 +179,36 @@ extension BLETransport: CBCentralManagerDelegate {
         case .poweredOn:
             startScanIfPossible()
         case .unauthorized:
-            finishConnect(with: .failure(TransportError.bluetoothUnavailable("keine Berechtigung")))
+            tearDown(reason: "keine Berechtigung")
         case .unsupported:
-            finishConnect(with: .failure(TransportError.bluetoothUnavailable("nicht unterstützt")))
+            tearDown(reason: "nicht unterstützt")
         case .poweredOff:
-            finishConnect(with: .failure(TransportError.bluetoothUnavailable("ausgeschaltet")))
+            tearDown(reason: "ausgeschaltet")
+        case .resetting:
+            tearDown(reason: "Bluetooth startet neu")
         default:
             break
         }
+    }
+
+    /// Räumt eine bestehende Verbindung ab, wenn Bluetooth wegfällt.
+    ///
+    /// CoreBluetooth meldet beim Abschalten nur den Zustandswechsel – ein
+    /// `didDisconnectPeripheral` kommt nicht verlässlich. Ohne das hier bliebe
+    /// das Gerät in der App als verbunden stehen, obwohl nichts mehr geht.
+    private func tearDown(reason: String) {
+        logger.info("Bluetooth nicht mehr verfügbar: \(reason, privacy: .public)")
+        let sinks = lock.withLock {
+            peripheral = nil
+            writeCharacteristic = nil
+            notifyCharacteristic = nil
+            isScanning = false
+            let snapshot = Array(self.sinks.values)
+            self.sinks.removeAll()
+            return snapshot
+        }
+        for sink in sinks { sink.finish() }
+        finishConnect(with: .failure(TransportError.bluetoothUnavailable(reason)))
     }
 
     public func centralManager(
