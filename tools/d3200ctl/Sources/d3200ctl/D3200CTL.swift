@@ -62,6 +62,50 @@ enum D3200CTL {
                 await finish(client, transport, code: 0)
             }
 
+            if command == "state" {
+                // Zwei offene Fragen, die die App braucht, wenn sie sich zu
+                // einer schon laufenden Aufnahme dazuverbindet:
+                //   1. Meldet isRecording auch während einer PAUSE noch true?
+                //   2. Taucht die laufende Aufnahme schon in der Dateiliste auf?
+                //      Wenn ja, ist ihre file_id der Startzeitpunkt – und damit
+                //      die exakte bisherige Laufzeit.
+                func zustand(_ wann: String) async {
+                    let info = try? await client.fetchDeviceInfo()
+                    let liste = (try? await client.listRecordings()) ?? []
+                    let neueste = liste.max { $0.fileID < $1.fileID }
+                    note("\(wann): isRecording=\(info?.isRecording.description ?? "?") "
+                        + "frei=\(info?.freeStorageBytes ?? 0) B  "
+                        + "Dateien=\(liste.count) "
+                        + "neueste=\(neueste.map { String(format: "%08x", $0.fileID) } ?? "-") "
+                        + "dauer=\(neueste.map { String(format: "%.1f s", $0.duration) } ?? "-")")
+                }
+
+                await zustand("vor dem Start  ")
+                note("starte Aufnahme …")
+                try await client.sendRecordControl(.start)
+                try await Task.sleep(for: .seconds(5))
+                await zustand("5 s Aufnahme   ")
+                try await Task.sleep(for: .seconds(5))
+                await zustand("10 s Aufnahme  ")
+
+                note("pausiere …")
+                try await client.sendRecordControl(.pause)
+                try await Task.sleep(for: .seconds(4))
+                await zustand("pausiert       ")
+
+                note("setze fort …")
+                try await client.sendRecordControl(.start)
+                try await Task.sleep(for: .seconds(4))
+                await zustand("fortgesetzt    ")
+
+                note("stoppe …")
+                try await client.sendRecordControl(.stop)
+                try await Task.sleep(for: .seconds(5))
+                await zustand("nach dem Stop  ")
+                note("Die Testaufnahme (~18 s) bleibt auf dem Gerät.")
+                await finish(client, transport, code: 0)
+            }
+
             if command == "monitor" {
                 note("lausche \(seconds) s auf unaufgeforderte Frames.")
                 note("Drücke JETZT am Work die Aufnahmetaste, sprich kurz, stoppe wieder.")
@@ -663,6 +707,9 @@ enum D3200CTL {
                                        prüft, ob das BLE-Frames erzeugt
       d3200ctl flags [<file-id-hex>]   zählt das Flags-Byte aller Frames aus
                                        (Bit 0x01 = Klopfmarkierung)
+      d3200ctl state                   nimmt ~18 s auf und prüft dabei, was
+                                       isRecording und die Dateiliste während
+                                       Aufnahme und Pause melden
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)
