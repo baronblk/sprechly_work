@@ -24,6 +24,9 @@ struct TranscriptView: View {
     }
 
     private var isTranscribing: Bool { viewModel.phase == .transcribing }
+    /// Erkennung und Lauf sperren die Bedienung gleichermaßen – beides läuft
+    /// auf derselben Datei.
+    private var isBusy: Bool { isTranscribing || viewModel.phase == .detecting }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -317,12 +320,23 @@ struct TranscriptView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .disabled(isTranscribing)
+                    .disabled(isBusy)
                 }
                 .font(.subheadline)
                 .padding(.horizontal, Theme.Spacing.xs)
 
-                if isTranscribing {
+                if let detected = viewModel.detectedLocale {
+                    Label(
+                        "Sprache erkannt: \(TranscriptionLocale.displayName(for: detected))",
+                        systemImage: "checkmark.circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                }
+
+                if viewModel.phase == .detecting {
+                    ProgressView("Sprache wird erkannt…")
+                } else if isTranscribing {
                     ProgressView("Wird transkribiert… (\(viewModel.liveDrafts.count))")
                 } else {
                     Button {

@@ -12,7 +12,8 @@ final class TranscriptionViewModel {
     enum Phase: Equatable {
         /// `preview` = a locked run that transcribed only the first
         /// `previewLimit` seconds and deliberately persisted nothing.
-        case idle, transcribing, done, preview, failed
+        /// `detecting` = probing which language is spoken, before the real run.
+        case idle, detecting, transcribing, done, preview, failed
     }
 
     /// How much of a recording a locked user may transcribe. The paywall argues
@@ -26,6 +27,9 @@ final class TranscriptionViewModel {
     var locale: Locale
     private(set) var liveDrafts: [TranscriptDraft] = []
     private(set) var phase: Phase = .idle
+    /// Gesetzt, wenn die Spracherkennung die Sprache gewechselt hat – damit der
+    /// Wechsel in der Ansicht sichtbar ist und nicht wie Zauberei wirkt.
+    private(set) var detectedLocale: Locale?
     var errorMessage: String?
     var showPaywall = false
 
@@ -79,7 +83,13 @@ final class TranscriptionViewModel {
     }
 
     func transcribe() async {
-        guard phase != .transcribing else { return }
+        guard phase != .transcribing, phase != .detecting else { return }
+
+        // Nur beim ersten Lauf: hat die Aufnahme schon eine Sprache, ist das
+        // die des Nutzers und wird nicht hinterfragt.
+        if recording.transcriptionLanguage == nil {
+            await detectLanguage()
+        }
 
         // Locked users get a preview of the first `previewLimit` seconds: the
         // result is shown but never persisted, so it cannot be exported, fed to
@@ -163,6 +173,51 @@ final class TranscriptionViewModel {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    /// Probiert die aussichtsreichsten Sprachen auf dem Anfang der Aufnahme und
+    /// übernimmt die Sprache, die sich selbst bestätigt (siehe
+    /// `LanguageDetection`).
+    ///
+    /// Gibt es nur eine installierte Sprache, gibt es nichts zu entscheiden –
+    /// dann wird nichts probiert. Schlägt eine Probe fehl, zählt sie einfach
+    /// nicht mit; die Erkennung darf den Lauf nie verhindern.
+    func detectLanguage() async {
+        let candidates = LanguageDetection.candidates(installed: installedLocales)
+        guard candidates.count > 1 else { return }
+
+        phase = .detecting
+        var probes: [LanguageDetection.Probe] = []
+        for candidate in candidates {
+            guard let text = await probeText(locale: candidate) else { continue }
+            probes.append(LanguageDetection.Probe(locale: candidate, text: text))
+        }
+
+        guard let detected = LanguageDetection.pick(from: probes) else {
+            logger.info("Spracherkennung unentschieden, bleibe bei \(self.locale.identifier, privacy: .public)")
+            return
+        }
+        if detected != locale {
+            logger.info("Sprache erkannt: \(detected.identifier, privacy: .public)")
+            locale = detected
+            detectedLocale = detected
+        }
+    }
+
+    /// Transkribiert nur den Anfang der Aufnahme und gibt den Text zurück.
+    private func probeText(locale: Locale) async -> String? {
+        var parts: [String] = []
+        do {
+            for try await draft in service.transcribe(fileAt: audioURL, locale: locale) {
+                parts.append(draft.text)
+                if draft.endTime >= LanguageDetection.probeWindow { break }
+            }
+        } catch {
+            logger.error("Sprachprobe \(locale.identifier, privacy: .public) fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let text = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     /// Replaces all segments in one transaction; rolls back on failure so the
