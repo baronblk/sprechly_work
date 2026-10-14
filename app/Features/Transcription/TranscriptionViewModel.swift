@@ -70,7 +70,10 @@ final class TranscriptionViewModel {
                     .localizedCaseInsensitiveCompare(TranscriptionLocale.displayName(for: $1)) == .orderedAscending
             }
         installedLocales = installed
-        if let preferred = Self.defaultLocale(installed: installed) {
+        if let preferred = Self.defaultLocale(
+            installed: installed,
+            remembered: recording.transcriptionLanguage
+        ) {
             locale = preferred
         }
     }
@@ -167,6 +170,9 @@ final class TranscriptionViewModel {
     private func persistAtomically(_ drafts: [TranscriptDraft]) throws {
         guard let modelContext else { return }
         for old in recording.segmentList { modelContext.delete(old) }
+        // Zur Transaktion gehört auch, in welcher Sprache die Segmente
+        // entstanden sind – sonst rät der nächste Lauf wieder.
+        recording.transcriptionLanguage = locale.identifier
         for draft in drafts {
             modelContext.insert(TranscriptSegment(
                 text: draft.text, startTime: draft.startTime, endTime: draft.endTime, recording: recording
@@ -180,14 +186,31 @@ final class TranscriptionViewModel {
         }
     }
 
-    /// Picks the installed locale matching the device's preferred languages (by
-    /// language code, in preference order), falling back to the first installed.
+    /// Picks the locale for this recording.
+    ///
+    /// A recording that was transcribed before keeps **its** language: re-running
+    /// it must not silently switch to the device language, or a German transcript
+    /// would come back as English on an English phone. An exact identifier wins;
+    /// otherwise the same language in another region (remembered `de-DE`, only
+    /// `de-AT` installed) still counts. Only without a remembered language do the
+    /// device's preferred languages decide, then the first installed one.
+    ///
     /// Uses `Locale.preferredLanguages` — the device's language settings — not
     /// `Locale.current`, which reflects the app's (currently en-only) localization.
     static func defaultLocale(
         installed: [Locale],
-        preferred: [String] = Locale.preferredLanguages
+        preferred: [String] = Locale.preferredLanguages,
+        remembered: String? = nil
     ) -> Locale? {
+        if let remembered {
+            if let exact = installed.first(where: { $0.identifier == remembered }) {
+                return exact
+            }
+            let code = Locale(identifier: remembered).language.languageCode
+            if let sameLanguage = installed.first(where: { $0.language.languageCode == code }) {
+                return sameLanguage
+            }
+        }
         for language in preferred {
             let code = Locale(identifier: language).language.languageCode
             if let match = installed.first(where: { $0.language.languageCode == code }) {

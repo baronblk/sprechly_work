@@ -19,6 +19,12 @@ private final class StubTranscription: TranscriptionProviding, @unchecked Sendab
         AsyncStream { $0.finish() }
     }
 
+    /// Dieselbe Quelle wie `assetState`, damit die Sprachauswahl im ViewModel
+    /// überhaupt etwas zu wählen hat.
+    func installedLocales() async -> [Locale] {
+        installed.sorted().map { Locale(identifier: $0) }
+    }
+
     func transcribe(fileAt url: URL, locale: Locale) -> AsyncThrowingStream<TranscriptDraft, Error> {
         let drafts = self.drafts
         let throwAfter = self.throwAfter
@@ -115,6 +121,79 @@ struct TranscriptionViewModelTests {
         #expect(vm.phase == .failed)
         #expect(recording.segmentList.count == 2)
         #expect(Set(recording.segmentList.map(\.text)) == ["alt1", "alt2"])
+    }
+
+    // MARK: - Sprache pro Aufnahme
+
+    @Test func transcriptionStoresTheLanguageItUsed() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let recording = makeRecording(in: context)
+        #expect(recording.transcriptionLanguage == nil)
+
+        let stub = StubTranscription()
+        stub.drafts = [TranscriptDraft(text: "hallo", startTime: 0, endTime: 1)]
+        let vm = TranscriptionViewModel(recording: recording, service: stub)
+        vm.configure(modelContext: context, store: MockEntitlementStore(unlockAll: true))
+        vm.locale = Locale(identifier: "en-US")
+
+        await vm.transcribe()
+
+        #expect(vm.phase == .done)
+        #expect(recording.transcriptionLanguage == "en-US")
+    }
+
+    /// Ein gesperrter Lauf speichert nichts – auch nicht die Sprache.
+    @Test func previewRunDoesNotStoreTheLanguage() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let recording = makeRecording(in: context)
+
+        let stub = StubTranscription()
+        stub.drafts = [TranscriptDraft(text: "hallo", startTime: 0, endTime: 1)]
+        let vm = TranscriptionViewModel(recording: recording, service: stub)
+        vm.configure(modelContext: context, store: MockEntitlementStore(unlockAll: false))
+        vm.locale = Locale(identifier: "en-US")
+
+        await vm.transcribe()
+
+        #expect(vm.phase == .preview)
+        #expect(recording.transcriptionLanguage == nil)
+    }
+
+    @Test func rememberedLanguageWinsOverTheDeviceLanguage() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let recording = makeRecording(in: context)
+        recording.transcriptionLanguage = "en-US"
+
+        let vm = TranscriptionViewModel(recording: recording, service: StubTranscription())
+        vm.configure(modelContext: context, store: MockEntitlementStore(unlockAll: true))
+        await vm.loadInstalledLocales()
+
+        // Das Testgerät läuft auf Deutsch; die Aufnahme bleibt trotzdem englisch.
+        #expect(vm.locale.identifier == "en-US")
+    }
+
+    @Test func rememberedLanguageFallsBackToAnotherRegion() {
+        let de_AT = Locale(identifier: "de-AT")
+        let en = Locale(identifier: "en-US")
+        // Gemerkt war de-DE, installiert ist nur de-AT – Deutsch bleibt Deutsch.
+        #expect(
+            TranscriptionViewModel.defaultLocale(
+                installed: [en, de_AT], preferred: ["en-US"], remembered: "de-DE"
+            )?.identifier == "de-AT"
+        )
+    }
+
+    @Test func rememberedLanguageIsIgnoredWhenItsModelIsGone() {
+        let de = Locale(identifier: "de-DE")
+        // Das gemerkte Modell wurde gelöscht – dann entscheidet wieder das Gerät.
+        #expect(
+            TranscriptionViewModel.defaultLocale(
+                installed: [de], preferred: ["de-DE"], remembered: "fr-FR"
+            )?.identifier == "de-DE"
+        )
     }
 
     @Test func defaultLocalePicksDevicePreferredLanguage() {

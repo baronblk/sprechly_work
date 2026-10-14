@@ -25,6 +25,10 @@ final class Recording {
     /// Persisted transcript translation and its target language code (e.g. "en").
     var translation: String?
     var translationLanguageCode: String?
+    /// Locale identifier the persisted segments were transcribed with (e.g.
+    /// "de-DE"), so a later run uses the same language instead of guessing
+    /// from the device settings again. `nil` until transcribed once.
+    var transcriptionLanguage: String?
     /// `file_id` of the Soundcore Work recording this was imported from, so
     /// the device list can mark it as imported across launches. `nil` for
     /// every recording made in the app. Stored as `Int` because CloudKit has
@@ -56,7 +60,8 @@ final class Recording {
         aiTitle: String? = nil,
         summary: String? = nil,
         markers: [TimeInterval] = [],
-        workFileID: Int? = nil
+        workFileID: Int? = nil,
+        transcriptionLanguage: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -69,6 +74,7 @@ final class Recording {
         self.summary = summary
         self.markers = markers
         self.workFileID = workFileID
+        self.transcriptionLanguage = transcriptionLanguage
     }
 
     /// Moves the recording into the trash.
