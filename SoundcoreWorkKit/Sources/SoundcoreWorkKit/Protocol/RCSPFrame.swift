@@ -95,6 +95,9 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
     case recordingState
     case fileDetail
     case audioChunk
+    /// Zweite Slice-Variante. Die Referenz führt sie als `fileSliceMark`;
+    /// über welchen der beiden Typen Audio kommt, entscheidet das Gerät.
+    case audioChunkMark
     case transferComplete
     case fileList
     /// Löschen einer Aufnahme auf dem Gerät.
@@ -109,7 +112,8 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
         case .deviceInfo, .battery, .charging, .timeSync: 0x01
         case .auth: 0x0B
         case .recordControl: 0x18
-        case .recordingState, .fileDetail, .audioChunk, .transferComplete, .fileList, .deleteFile: 0x1A
+        case .recordingState, .fileDetail, .audioChunk, .audioChunkMark,
+             .transferComplete, .fileList, .deleteFile: 0x1A
         case .keyExchange: 0x2E
         }
     }
@@ -126,6 +130,7 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
         case .recordingState: 0x06
         case .fileDetail: 0x07
         case .audioChunk: 0x08
+        case .audioChunkMark: 0x12
         case .transferComplete: 0x0A
         case .fileList: 0x0E
         case .deleteFile: 0x10
@@ -142,7 +147,7 @@ public enum D3200Message: Sendable, Hashable, CaseIterable {
     /// Offset im Frame, ab dem die Nutzdaten dieses Typs beginnen.
     public var payloadOffset: Int {
         switch self {
-        case .audioChunk: 12          // davor: Frame-Zähler auf 9, Füllbytes 10/11
+        case .audioChunk, .audioChunkMark: 12   // davor: seq u32 auf 9
         case .fileList: 11            // davor: Eintragszähler LE16 auf 9/10
         case .transferComplete: 10
         case .recordControl: 9        // Statusbyte; bei einem Stop danach Dauer und file_id

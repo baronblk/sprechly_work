@@ -120,6 +120,28 @@ Notation: Payload-Bytes (hinter Präfix `08 EE 00 00`, vor dem XOR-Checksum).
 | File-Detail / Download | `00 1a 07 12 00 00 00 00 00` + `<file_id 4B>` | file_id = 4 Byte, little-endian |
 | ECDH | `00 2e 01 4b 00 04` + `<pubkey 64B>` | pubkey = X‖Y big-endian (unkomprimierter P-256-Punkt ohne 0x04-Präfix) |
 
+### Rahmenformat, genauer (aus der Referenz, am Gerät bestätigt)
+
+```
+magic(5) │ cmdType(1) │ cmdId(1) │ bodyLen u16 LE │ payload │ checksum(1)
+08 EE 00 00 00 │   1A   │   07    │     12 00      │   …     │   XOR
+```
+
+Das Byte auf **Offset 8 ist das High-Byte der Länge**, keine Füllung – und
+`bodyLen` zählt den ganzen Frame. Die Prüfsumme bleibt das XOR über alles ab
+Offset 4; die Summe, die die Referenz bildet, passt zu keinem der am Gerät
+akzeptierten Frames.
+
+**Nutzlast von `1A/07` (Transfer):**
+```
+0..3  already_transferred  u32 LE   ← Resume: Startpunkt in Byte
+4..7  file_id              u32 LE
+8     realtimeFlag         0 | 1    ← weglassbar; fehlt er, gilt „offline"
+```
+Die Hersteller-App nutzt `already_transferred` tatsächlich: Im Mitschnitt wird
+dieselbe `file_id` mit wachsendem Offset erneut angefordert (`0000ae6e`,
+dann `0000b828`).
+
 ### Vollständiger Command-Katalog (cmdType/cmdId, aus Community-Repo)
 Ergänzt die verifizierten Rohpayloads oben. Frame beim Senden immer über den
 `08ee`-Kanal an `0xA102` mit XOR-Checksum (§2); Längen-/Byte-Wrapping beim
@@ -137,7 +159,7 @@ Implementieren einmal gegen das reale Gerät gegenprüfen.
 | Datei löschen | 0x1A | 0x10 | u32LE(fileId) – **am Gerät verifiziert**, siehe §7d |
 | BT-Transport starten | 0x1A | 0x0F | `00` (iOS: `01`) |
 | BT-Transport stoppen | 0x1A | 0x11 | `00` (iOS: `01`) |
-| Datei-Transfer (Download) | 0x1A | 0x07 | fileId + realtimeFlag |
+| Datei-Transfer (Download) | 0x1A | 0x07 | `already u32 ‖ fileId u32 ‖ realtimeFlag u8` – siehe unten |
 | WLAN-SoftAP konfigurieren | 0x1A | 0x05 | `[ssid_len][ssid][pwd_len][pwd]` |
 | WLAN schließen | 0x1A | 0x02 | – |
 | ECDH-Handshake | 0x2E | 0x01 | pubkey |
@@ -411,7 +433,39 @@ Download-Anforderung braucht es hier **nicht**.
 > Genau daran wäre die Prüfung fast gescheitert: Der erste Versuch galt als
 > wirkungslos, weil die Liste unmittelbar danach noch 22 Einträge zeigte.
 
-## 7e. Live-Pegel: Befund zurückgezogen (2026-10-14)
+## 7e. Live-Pegel: über BLE nicht verfügbar (sauber geprüft 2026-10-14)
+
+Mit korrekt gebautem Befehl, gültiger Vergleichsmessung und beiden
+Slice-Typen gezählt:
+
+```
+→ 08 ee 00 00 00 1a 07 13 00 | 00000000 | 9277cf6a | 01 | 4f
+  magic(5) 1a 07 len=19      | already  | file_id  | realtimeFlag
+```
+
+| Messung | Ergebnis |
+|---|---|
+| Vergleich: fertige Aufnahme (6,1 s) offline, Sekunden zuvor | **307 Slices** |
+| Realtime auf die laufende Aufnahme, 30 s, Typ `0x08` **und** `0x12` | **0 Slices** |
+
+Die Firmware dieses Geräts beantwortet die Realtime-Anforderung nicht mit
+Audio. Der Befehl ist korrekt – dieselbe Nutzlast ohne Flag liefert Sekunden
+vorher 307 Slices –, nur bleibt die laufende Aufnahme stumm.
+
+**Nicht wie beim ersten Versuch:** Damals fehlte das Flag-Byte ganz, der
+Zähler sah nur `0x08`, und auch die Offline-Anforderung lieferte nichts. Diese
+Messung hat eine gültige Vergleichsgröße aus derselben Sitzung.
+
+### Was für den Pegel bleibt
+- Ein **HCI-Mitschnitt**, während die Hersteller-App einen Pegel anzeigt. Die
+  vorhandenen Mitschnitte (`captures/`) enthalten keinen: Alle acht
+  Transfer-Befehle darin sind offline (18 B, ohne Flag), und `1a/06` kommt
+  insgesamt nur viermal vor – ein Pegel bräuchte ~50 Meldungen je Sekunde.
+- Der **WLAN-SoftAP-Pfad** (§1, §6.4/6.5 der Referenz): `1a/05` öffnet einen
+  Hotspot und liefert IP und Port, danach läuft der Transfer über WebSocket.
+  Ob dort Realtime geht, ist offen.
+
+### Ursprüngliche, nicht aussagekräftige Messung
 
 > **Diese Messung war nicht aussagekräftig.** Zwei Fehler, beide meine:
 > der Zähler sah nur Slices vom Typ `0x08`, während Realtime-Slices laut
@@ -446,9 +500,7 @@ beendet ist**. Danach kommt die komplette Datei am Stück.
 > das – dort hatte vermutlich eine der Varianten die Aufnahme vorzeitig
 > beendet, woraufhin die aufgelaufenen Anforderungen bedient wurden.
 
-**Folgerung (korrigiert):** Offen. Der Versuch mit korrekt gebautem
-19-Byte-Befehl und einem Zähler, der auch `0x12` sieht, steht noch aus.
-Daneben bleiben:
+**Folgerung:** siehe oben – inzwischen sauber nachgemessen. Daneben bleiben:
 - der WLAN-SoftAP-/WebSocket-Pfad (§1) – die Referenz nennt dort einen
   `realtimeFlag`, der womöglich gar nicht BLE betrifft;
 - ein HCI-Mitschnitt der Hersteller-App, während sie den Pegel anzeigt. Das

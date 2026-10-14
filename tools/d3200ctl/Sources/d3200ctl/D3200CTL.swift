@@ -98,34 +98,105 @@ enum D3200CTL {
                 await finish(client, transport, code: 0)
             }
 
-            if command == "poll" {
-                // Hypothese: Nicht ein Flag, sondern die Wiederholung bringt
-                // den Strom in Gang. Nur der bekannte, unveränderte Befehl.
-                note("ECDH-Handshake …")
-                try await client.performKeyExchange()
-                note("starte Aufnahme …")
-                try await client.sendRecordControl(.start)
-                var liveFileID: UInt32?
-                for await event in await client.events() {
-                    if case .recordingState(let fileID, _) = event { liveFileID = fileID; break }
+            if command == "phase1" {
+                func slices() -> Int {
+                    transport.count(of: .audioChunk) + transport.count(of: .audioChunkMark)
                 }
-                guard let liveFileID else { await finish(client, transport, code: 1) }
-                try await Task.sleep(for: .seconds(3))
+                @discardableResult
+                func beobachte(_ label: String, sekunden: Int) async throws -> Int {
+                    var vorher = slices()
+                    var gesamt = 0
+                    for fenster in 1 ... (sekunden / 5) {
+                        try await Task.sleep(for: .seconds(5))
+                        let jetzt = slices()
+                        gesamt += jetzt - vorher
+                        note(String(format: "  %@ %2d-%2d s: %d Slices (0x08 gesamt %d, 0x12 gesamt %d)",
+                                    label, (fenster - 1) * 5, fenster * 5, jetzt - vorher,
+                                    transport.count(of: .audioChunk),
+                                    transport.count(of: .audioChunkMark)))
+                        vorher = jetzt
+                    }
+                    return gesamt
+                }
+                /// Wartet, bis nichts mehr fliesst - ein laufender Transfer
+                /// ueberschwemmt sonst den Kanal und verschluckt alles andere.
+                func warteBisRuhe() async throws {
+                    var ruhig = 0
+                    var letzter = slices()
+                    while ruhig < 3 {
+                        try await Task.sleep(for: .seconds(1))
+                        let jetzt = slices()
+                        ruhig = jetzt == letzter ? ruhig + 1 : 0
+                        letzter = jetzt
+                    }
+                }
+                func kurzeAufnahme() async -> D3200Recording? {
+                    (try? await client.listRecordings())?
+                        .filter { $0.duration <= 20 }
+                        .min { $0.duration < $1.duration }
+                }
 
-                let request = D3200Commands.fileDetail(fileID: liveFileID)
-                note("sende die Anforderung alle 2 s, unverändert")
-                var previous = transport.count(of: .audioChunk)
-                for round in 1 ... 12 {
-                    try await transport.send(request)
-                    try await Task.sleep(for: .seconds(2))
-                    let now = transport.count(of: .audioChunk)
-                    note(String(format: "  Anfrage %2d: +%d Chunks", round, now - previous))
-                    previous = now
+                // Falls ein frueherer Lauf das Geraet aufnehmend hinterliess.
+                try? await client.sendRecordControl(.stop)
+                try await Task.sleep(for: .seconds(2))
+
+                note("ECDH-Handshake ...")
+                try await client.performKeyExchange()
+
+                // Vergleichsaufnahme muss kurz sein, sonst blockiert ihr
+                // Download alles Weitere.
+                var vergleichsAufnahme = await kurzeAufnahme()
+                if vergleichsAufnahme == nil {
+                    note("keine kurze Aufnahme vorhanden - nehme 6 s auf")
+                    try await client.sendRecordControl(.start)
+                    try await Task.sleep(for: .seconds(6))
+                    try await client.sendRecordControl(.stop)
+                    for versuch in 1 ... 6 where vergleichsAufnahme == nil {
+                        try await Task.sleep(for: .seconds(3))
+                        vergleichsAufnahme = await kurzeAufnahme()
+                        note("  Liste nach \(versuch * 3) s: \(vergleichsAufnahme == nil ? "noch nichts" : "da")")
+                    }
                 }
+                guard let fertige = vergleichsAufnahme else {
+                    note("keine kurze Aufnahme verfuegbar - Abbruch")
+                    await finish(client, transport, code: 1)
+                }
+
+                note("VERGLEICH: \(String(format: "%08x", fertige.fileID)) "
+                    + "(\(String(format: "%.1f", fertige.duration)) s) offline anfordern")
+                try await transport.send(D3200Commands.fileTransfer(fileID: fertige.fileID))
+                let vergleich = try await beobachte("offline ", sekunden: 10)
+                guard vergleich > 0 else {
+                    note("Vergleichsmessung lieferte nichts - Messung ungueltig, Abbruch.")
+                    await finish(client, transport, code: 1)
+                }
+                note("Vergleich gueltig: \(vergleich) Slices. Warte, bis der Kanal frei ist ...")
+                try await warteBisRuhe()
+
+                note("starte Aufnahme am Geraet ...")
+                try await client.sendRecordControl(.start)
+                var laufendeID: UInt32?
+                for await event in await client.events() {
+                    if case .recordingState(let fileID, _) = event { laufendeID = fileID; break }
+                }
+                guard let laufendeID else { await finish(client, transport, code: 1) }
+                note("laufende Aufnahme: \(String(format: "%08x", laufendeID))")
+                try await Task.sleep(for: .seconds(5))
+
+                let befehl = D3200Commands.fileTransfer(fileID: laufendeID, realtime: true)
+                note("REALTIME: \(befehl.map { String(format: "%02x", $0) }.joined(separator: " "))")
+                let vorRealtime = slices()
+                try await transport.send(befehl)
+                try await beobachte("realtime", sekunden: 30)
+                let imRealtime = slices() - vorRealtime
+
+                note(imRealtime > 0
+                     ? "ERGEBNIS: \(imRealtime) Slices waehrend der laufenden Aufnahme."
+                     : "ERGEBNIS: nichts - bei gueltigem Vergleich von \(vergleich) Slices.")
 
                 note("stoppe die Aufnahme wieder")
                 try? await client.sendRecordControl(.stop)
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(3))
                 await finish(client, transport, code: 0)
             }
 

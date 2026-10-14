@@ -34,14 +34,34 @@ public enum D3200Commands {
         RCSPFrame.command(payload: Data([0x00, 0x1A, 0x0E, 0x0C, 0x00, page, 0x00, 0x2A]))
     }
 
-    /// File-Detail bzw. Download-Anforderung – `file_id` als LE32.
+    /// Transfer-Anforderung für eine Aufnahme.
     ///
-    /// Dieselbe Anforderung liefert zuerst den `0761`-Header und stößt dann den
-    /// Chunk-Stream an (Spec §3, Schritte 6–7).
-    public static func fileDetail(fileID: UInt32) -> Data {
-        var payload = Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00])
+    /// Nutzlast nach Referenz-Layout:
+    /// `already_transferred u32 ‖ file_id u32 ‖ realtimeFlag u8`.
+    ///
+    /// - `alreadyTransferred` setzt den Startpunkt – damit lässt sich ein
+    ///   abgebrochener Download fortsetzen statt neu zu beginnen.
+    /// - `realtime` fordert den laufenden Mitschnitt an. **Ohne** das Byte ist
+    ///   die Anforderung per Definition „offline"; genau deshalb hat jeder
+    ///   frühere Realtime-Versuch nichts geliefert.
+    public static func fileTransfer(
+        fileID: UInt32,
+        alreadyTransferred: UInt32 = 0,
+        realtime: Bool? = nil
+    ) -> Data {
+        // Länge steht als LE16 auf Offset 7/8 und zählt den ganzen Frame.
+        let length = UInt16(4 + 5 + 8 + (realtime == nil ? 0 : 1) + 1)
+        var payload = Data([0x00, 0x1A, 0x07])
+        payload.append(littleEndian: length)
+        payload.append(littleEndian: alreadyTransferred)
         payload.append(littleEndian: fileID)
+        if let realtime { payload.append(realtime ? 0x01 : 0x00) }
         return RCSPFrame.command(payload: payload)
+    }
+
+    /// Die am Gerät erprobte Offline-Anforderung (18 B, ohne Flag-Byte).
+    public static func fileDetail(fileID: UInt32) -> Data {
+        fileTransfer(fileID: fileID)
     }
 
     /// Fragt eine Nachricht ohne Nutzdaten ab (Gruppe/Typ aus `message`).

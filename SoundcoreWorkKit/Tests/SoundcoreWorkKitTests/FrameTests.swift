@@ -110,13 +110,56 @@ struct FrameTests {
         #expect(payload == Data([0x00, 0x1A, 0x0E, 0x0C, 0x00, page, 0x00, 0x2A]))
     }
 
+    /// Die am Gerät erprobte Offline-Form: 18 B, kein Flag-Byte.
     @Test("File-Detail-Command trägt die file_id als LE32")
     func fileDetailCommand() {
-        let payload = Data(D3200Commands.fileDetail(fileID: 0x697B_4A4B).dropFirst(4).dropLast())
+        let frame = D3200Commands.fileDetail(fileID: 0x697B_4A4B)
+        let payload = Data(frame.dropFirst(4).dropLast())
 
+        #expect(frame.count == 18)
         #expect(payload.count == 13)
         #expect(payload.prefix(9) == Data([0x00, 0x1A, 0x07, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00]))
         #expect(Data(payload.suffix(4)) == Data([0x4B, 0x4A, 0x7B, 0x69]))
+    }
+
+    /// Die Länge steht als LE16 auf Offset 7/8 – was ich lange für ein
+    /// Längenbyte plus Füllung hielt.
+    @Test("Transfer-Command: Länge als LE16, Resume-Offset, Realtime-Flag")
+    func fileTransferLayout() {
+        // Ohne Flag: 18 B, identisch zur erprobten Offline-Form.
+        let offline = D3200Commands.fileTransfer(fileID: 0x697B_4A4B)
+        #expect(offline == D3200Commands.fileDetail(fileID: 0x697B_4A4B))
+        #expect(offline[7] == 18 && offline[8] == 0)
+
+        // Mit Flag: ein Byte mehr, Länge wächst mit.
+        let realtime = D3200Commands.fileTransfer(fileID: 0x697B_4A4B, realtime: true)
+        #expect(realtime.count == 19)
+        #expect(realtime[7] == 19 && realtime[8] == 0)
+        #expect(realtime[17] == 0x01)          // realtimeFlag
+        #expect(Data(realtime[13 ..< 17]) == Data([0x4B, 0x4A, 0x7B, 0x69]))
+        #expect(realtime.last == RCSPFrame.checksum(Data(realtime.dropFirst(4).dropLast())))
+
+        // Ausdrücklich offline: Flag 0, ebenfalls 19 B.
+        let explicitOffline = D3200Commands.fileTransfer(fileID: 0x697B_4A4B, realtime: false)
+        #expect(explicitOffline.count == 19)
+        #expect(explicitOffline[17] == 0x00)
+    }
+
+    /// `already_transferred` setzt den Startpunkt – so setzt die Anker-App
+    /// abgebrochene Übertragungen fort (im Mitschnitt belegt).
+    @Test("Resume-Offset steht vor der file_id")
+    func fileTransferResumeOffset() {
+        let frame = D3200Commands.fileTransfer(fileID: 0x6ACE_7A7A, alreadyTransferred: 0xAE6E)
+
+        #expect(Data(frame[9 ..< 13]) == Data([0x6E, 0xAE, 0x00, 0x00]))
+        #expect(Data(frame[13 ..< 17]) == Data([0x7A, 0x7A, 0xCE, 0x6A]))
+    }
+
+    @Test("Beide Slice-Typen gehören zur Audio-Gruppe")
+    func bothSliceTypes() {
+        #expect(D3200Message(group: 0x1A, type: 0x08) == .audioChunk)
+        #expect(D3200Message(group: 0x1A, type: 0x12) == .audioChunkMark)
+        #expect(D3200Message.audioChunkMark.payloadOffset == D3200Message.audioChunk.payloadOffset)
     }
 
     @Test("ECDH-Command trägt den 64-B-Public-Key")
