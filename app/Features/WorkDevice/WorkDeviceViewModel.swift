@@ -504,7 +504,10 @@ final class WorkDeviceViewModel {
                 title: WorkImportService.title(for: item.recording),
                 fileName: converted.fileName,
                 duration: converted.duration,
-                createdAt: item.recording.recordedAt
+                createdAt: item.recording.recordedAt,
+                // Klopfmarkierungen des Geräts, nur bis zur tatsächlichen
+                // Dauer – die Umwandlung kann minimal kürzen.
+                markers: download.markers.filter { $0 <= converted.duration }
             )
             context.insert(recording)
             try context.save()

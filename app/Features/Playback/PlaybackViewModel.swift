@@ -95,6 +95,14 @@ final class PlaybackViewModel {
         position = fraction * duration
     }
 
+    /// Seeks to an absolute position, clamped to the file bounds. Used by the
+    /// marker chips of a Soundcore Work import.
+    func seek(to time: TimeInterval) async {
+        let target = Swift.min(Swift.max(0, time), duration)
+        await engine.seek(to: target)
+        position = target
+    }
+
     /// Skips relative to the current position, clamped to the file bounds
     /// (e.g. -10 / +10 for the dictaphone-style transport).
     func skip(by seconds: TimeInterval) async {

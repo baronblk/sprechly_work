@@ -25,6 +25,10 @@ final class Recording {
     /// Persisted transcript translation and its target language code (e.g. "en").
     var translation: String?
     var translationLanguageCode: String?
+    /// Tap markers from a Soundcore Work import: seconds from the start of
+    /// the recording, where the user tapped the device. Empty for every
+    /// recording made in the app.
+    var markers: [TimeInterval] = []
     /// The audio, stored externally and synced via CloudKit as an asset.
     /// Reconciled with the on-disk file (see CloudAudioReconciler).
     @Attribute(.externalStorage) var audioData: Data?
@@ -45,7 +49,8 @@ final class Recording {
         isTrashed: Bool = false,
         deletedAt: Date? = nil,
         aiTitle: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        markers: [TimeInterval] = []
     ) {
         self.id = id
         self.title = title
@@ -56,6 +61,7 @@ final class Recording {
         self.deletedAt = deletedAt
         self.aiTitle = aiTitle
         self.summary = summary
+        self.markers = markers
     }
 
     /// Moves the recording into the trash.

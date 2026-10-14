@@ -24,6 +24,9 @@ struct PlaybackView: View {
         )
     }
 
+    /// Device tap markers, in order. Empty for recordings made in the app.
+    private var markers: [TimeInterval] { recording.markers.sorted() }
+
     private var sortedSegments: [TranscriptSegment] {
         recording.segmentList.sorted { $0.startTime < $1.startTime }
     }
@@ -88,6 +91,8 @@ struct PlaybackView: View {
             WaveformView(
                 buckets: viewModel.buckets,
                 progress: viewModel.progress,
+                markers: markers,
+                duration: viewModel.duration,
                 onScrub: { fraction in Task { await viewModel.seek(toFraction: fraction) } }
             )
             .frame(height: 160)
@@ -103,7 +108,34 @@ struct PlaybackView: View {
             .foregroundStyle(Theme.Colors.textSecondary)
             .padding(.horizontal, Theme.Spacing.lg)
 
+            if !markers.isEmpty { markerStrip }
+
             transport
+        }
+    }
+
+    /// Tap markers of a Soundcore Work import: tapping a chip jumps there.
+    private var markerStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.sm) {
+                ForEach(Array(markers.enumerated()), id: \.offset) { index, marker in
+                    Button {
+                        Haptics.impact(.light)
+                        Task { await viewModel.seek(to: marker) }
+                    } label: {
+                        Label(
+                            TimeFormatting.shortTimecode(marker),
+                            systemImage: "hand.tap.fill"
+                        )
+                        .font(.caption.monospacedDigit())
+                        .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .accessibilityLabel(Text("Markierung \(index + 1)"))
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.lg)
         }
     }
 
