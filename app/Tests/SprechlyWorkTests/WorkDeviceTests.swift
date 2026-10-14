@@ -331,6 +331,44 @@ struct WorkDeviceTests {
         ]).count == 3)
     }
 
+    /// Beim Stop über die App schickt das Gerät zwei Meldungen: erst eine
+    /// kurze ohne `file_id`, dann die lange mit. Nur die zweite kann den
+    /// Import anstoßen – die erste darf ihn nicht schon vergeblich starten.
+    @Test("Die kurze Stop-Bestätigung trägt keine file_id")
+    func shortStopAckHasNoFileID() throws {
+        let kurz = try #require(Data(hex: "09ff0000011882" + "0c" + "00" + "00" + "9140"))
+        let lang = try #require(Data(hex:
+            "09ff00000118821400" + "00" + "01" + "7e000000" + "feaece6a" + "1a"
+        ))
+
+        let kurzeAntwort = try #require(RCSPFrame.Response(frame: kurz))
+        guard case .recordStatus(_, _, let ohneID) = try #require(D3200Event(response: kurzeAntwort))
+        else { return #expect(Bool(false), "kein recordStatus") }
+        #expect(ohneID == nil)
+
+        let langeAntwort = try #require(RCSPFrame.Response(frame: lang))
+        guard case .recordStatus(_, let sekunden, let mitID) = try #require(D3200Event(response: langeAntwort))
+        else { return #expect(Bool(false), "kein recordStatus") }
+        #expect(mitID == 0x6ACE_AEFE)
+        #expect(sekunden == 126)
+    }
+
+    /// Die Dateiliste des Geräts hinkt nach – direkt nach dem Stop fehlt die
+    /// neue Aufnahme dort noch, und ohne Nachfassen startet kein Import.
+    @Test("Fehlt die Aufnahme in der Liste, gibt es Nachfass-Versuche")
+    @MainActor
+    func autoImportRetriesWhileTheListLags() {
+        #expect(WorkDeviceViewModel.autoImportRetries >= 3)
+
+        // Noch nicht in der Liste → kein Kandidat.
+        let alteListe = [item(fileID: 0x6ACE_B548)]
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_BBFC, in: alteListe) == nil)
+
+        // Nach dem Nachladen ist sie da → Kandidat.
+        let neueListe = alteListe + [item(fileID: 0x6ACE_BBFC)]
+        #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_BBFC, in: neueListe)?.id == 0x6ACE_BBFC)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {

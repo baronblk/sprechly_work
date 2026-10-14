@@ -45,6 +45,14 @@ final class WorkDeviceViewModel {
     /// Aufnahme, die gerade transkribiert wird – für die Anzeige in der Karte.
     private(set) var transcribingTitle: String?
 
+    /// Wie oft nach dem Stop auf die nachhinkende Dateiliste gewartet wird.
+    static let autoImportRetries = 5
+
+    /// Verhindert, dass die beiden Stop-Meldungen des Geräts den Import
+    /// zweimal anstoßen: Beim Stop über die App kommt zuerst eine kurze
+    /// Bestätigung ohne `file_id` und danach die lange mit.
+    private var isAutoImporting = false
+
     private var client: D3200Client?
     private var eventTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
@@ -379,7 +387,28 @@ final class WorkDeviceViewModel {
     /// wenn die Liste noch nicht aktuell ist.
     private func autoImport(fileID: UInt32) async {
         guard importsAutomatically, let modelContainer else { return }
-        guard let item = Self.autoImportCandidate(fileID: fileID, in: items) else { return }
+        guard !isAutoImporting else { return }
+        isAutoImporting = true
+        defer { isAutoImporting = false }
+
+        // Die Dateiliste des Geräts hinkt nach – dieselbe Eigenheit wie beim
+        // Löschen (Spec §7d). Direkt nach dem Stop fehlt die neue Aufnahme
+        // dort noch, deshalb ein paar Mal nachfassen statt aufzugeben.
+        var item = Self.autoImportCandidate(fileID: fileID, in: items)
+        var versuch = 0
+        while item == nil, versuch < Self.autoImportRetries {
+            versuch += 1
+            try? await Task.sleep(for: .seconds(2))
+            await reloadList()
+            item = Self.autoImportCandidate(fileID: fileID, in: items)
+        }
+
+        guard let item else {
+            logger.info("""
+            Aufnahme \(String(format: "%08x", fileID), privacy: .public)             nach \(versuch) Versuchen nicht in der Liste
+            """)
+            return
+        }
 
         logger.info("importiere \(String(format: "%08x", fileID), privacy: .public) automatisch")
         await importRecording(item, context: modelContainer.mainContext)
