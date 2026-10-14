@@ -145,7 +145,7 @@ struct WorkDeviceCard: View {
         let used = ByteCountFormatter.string(fromByteCount: info.usedStorageBytes, countStyle: .file)
         let total = ByteCountFormatter.string(fromByteCount: info.totalStorageBytes, countStyle: .file)
         return HStack {
-            Text("\(used) von \(total)")
+            Text("\(used) von \(total) · noch \(Self.recordingTime(info.remainingRecordingTime))")
                 .font(.caption)
                 .foregroundStyle(Theme.Colors.textSecondary)
             Spacer()
@@ -173,6 +173,16 @@ struct WorkDeviceCard: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(isCharging ? "Akku \(percent) Prozent, lädt" : "Akku \(percent) Prozent"))
+    }
+
+    /// Verbleibende Aufnahmezeit, wie die Hersteller-App sie zeigt: Stunden
+    /// und Minuten, bei langen Zeiten ohne Minutenanteil.
+    static func recordingTime(_ seconds: TimeInterval) -> String {
+        let stunden = Int(seconds) / 3600
+        let minuten = Int(seconds) % 3600 / 60
+        if stunden >= 100 { return "\(stunden) h" }
+        if stunden > 0 { return "\(stunden) h \(minuten) min" }
+        return "\(minuten) min"
     }
 
     private func batterySymbol(_ percent: Int) -> String {

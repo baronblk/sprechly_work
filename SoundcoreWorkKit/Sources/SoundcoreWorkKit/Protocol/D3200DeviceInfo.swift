@@ -23,6 +23,8 @@ public struct D3200DeviceInfo: Sendable, Equatable {
     static let payloadOffset = 10
     /// Kürzester Frame, der alle Pflichtfelder trägt.
     static let minimumLength = payloadOffset + 44
+    /// Ab hier stehen die Zusatzfelder; ältere Firmware liefert sie evtl. nicht.
+    static let extendedLength = payloadOffset + 60
 
     public let battery: D3200BatteryLevel
     public let isCharging: Bool
@@ -38,6 +40,31 @@ public struct D3200DeviceInfo: Sendable, Equatable {
     public let caseBattery: D3200BatteryLevel
     /// MAC des Ladecase – `nil`, wenn das Gerät nur Füllbytes liefert.
     public let caseMACAddress: String?
+
+    /// Ob das Gerät gerade aufnimmt – direkt aus der Geräte-Info.
+    ///
+    /// Verlässlicher als die Pushes: Wer sich mitten in eine laufende
+    /// Aufnahme verbindet, hat deren Start-Push nie gesehen.
+    public let isRecording: Bool
+    /// Ob der Ruhezustand eingeschaltet ist.
+    public let autoPowerOffEnabled: Bool
+    /// Zeit bis zum Ruhezustand.
+    public let autoPowerOff: D3200AutoPowerOff?
+    /// Firmware des WLAN-Moduls.
+    public let wifiFirmwareVersion: String
+    public let pickupIndicatorLightOn: Bool
+    public let caseIndicatorLightOn: Bool
+
+    /// Wie lange noch aufgenommen werden kann, bei 160 Byte Audio je 20 ms.
+    ///
+    /// Dieselbe Rechnung wie die Hersteller-App: Sie zeigt für 7,19 GB frei
+    /// „268h 14m", was 8000 Byte je Sekunde entspricht – also der reinen
+    /// Audio-Nutzlast, nicht dem 166-Byte-Geräteframe.
+    public static let bytesPerSecond: Double = 160 / D3200Recording.secondsPerFrame
+
+    public var remainingRecordingTime: TimeInterval {
+        Double(freeStorageBytes) / Self.bytesPerSecond
+    }
 
     /// Belegter Speicher in Kilobyte.
     public var usedStorageKB: UInt32 { totalStorageKB >= freeStorageKB ? totalStorageKB - freeStorageKB : 0 }
@@ -82,6 +109,16 @@ public struct D3200DeviceInfo: Sendable, Equatable {
         caseFirmwareVersion = ascii(32, 5)
         caseBattery = D3200BatteryLevel(raw: byte(37))
 
+        // Zusatzfelder hinter der Ladecase-MAC. Sie fehlen bei kürzeren
+        // Antworten, deshalb nur lesen, wenn der Frame lang genug ist.
+        let hasExtended = bytes.count >= Self.extendedLength
+        autoPowerOffEnabled = hasExtended && byte(45) != 0
+        autoPowerOff = hasExtended ? D3200AutoPowerOff(rawValue: byte(46)) : nil
+        pickupIndicatorLightOn = hasExtended && byte(47) != 0
+        caseIndicatorLightOn = hasExtended && byte(48) != 0
+        isRecording = hasExtended && byte(49) != 0
+        wifiFirmwareVersion = hasExtended ? ascii(50, 5) : ""
+
         let mac = Array(bytes[base + 38 ..< base + 44])
         // Füllbytes: das Gerät meldet 21 21 … bzw. 00 00 …, wenn kein Case da ist.
         let isPadding = mac.allSatisfy { $0 == 0x21 } || mac.allSatisfy { $0 == 0x00 }
@@ -114,5 +151,25 @@ public struct D3200PowerStatus: Sendable, Equatable {
     /// Als Lade-Flags gelesen.
     public var chargingFlags: (device: Bool, chargingCase: Bool) {
         (device != 0, chargingCase != 0)
+    }
+}
+
+
+/// Zeit, nach der das Gerät in den Ruhezustand wechselt.
+///
+/// Am Gerät abgeglichen: Index 1 stand auf „24 Stunden", wie die
+/// Hersteller-App zur selben Zeit anzeigte. Im Ruhezustand funkt das Gerät
+/// nicht mehr – es wacht durch Schütteln oder die Aufnahmetaste auf.
+public enum D3200AutoPowerOff: UInt8, Sendable, CaseIterable {
+    case eightHours = 0
+    case twentyFourHours = 1
+    case fortyEightHours = 2
+
+    public var hours: Int {
+        switch self {
+        case .eightHours: 8
+        case .twentyFourHours: 24
+        case .fortyEightHours: 48
+        }
     }
 }

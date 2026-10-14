@@ -374,6 +374,18 @@ struct WorkDeviceTests {
         #expect(WorkDeviceViewModel.autoImportCandidate(fileID: 0x6ACE_BBFC, in: neueListe)?.id == 0x6ACE_BBFC)
     }
 
+    /// Format wie in der Hersteller-App: Bei über 100 Stunden sind Minuten
+    /// Rauschen, darunter helfen sie.
+    @Test("Verbleibende Aufnahmezeit wird lesbar formatiert", arguments: [
+        (TimeInterval(966_217), "268 h"),
+        (TimeInterval(3600 * 8 + 60 * 25), "8 h 25 min"),
+        (TimeInterval(90), "1 min"),
+        (TimeInterval(3600 * 99 + 60 * 30), "99 h 30 min"),
+    ])
+    func recordingTimeFormatting(seconds: TimeInterval, expected: String) {
+        #expect(WorkDeviceCard.recordingTime(seconds) == expected)
+    }
+
     @Test("Frisches ViewModel ist getrennt und leer")
     @MainActor
     func initialState() {

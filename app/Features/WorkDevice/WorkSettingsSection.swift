@@ -40,6 +40,15 @@ struct WorkSettingsSection: View {
                     LabeledContent("Akku") {
                         Text(info.isCharging ? "\(info.battery.percent) % · lädt" : "\(info.battery.percent) %")
                     }
+                    LabeledContent("Speicher") {
+                        Text("\(ByteCountFormatter.string(fromByteCount: info.usedStorageBytes, countStyle: .file)) von \(ByteCountFormatter.string(fromByteCount: info.totalStorageBytes, countStyle: .file))")
+                    }
+                    LabeledContent("Noch aufnehmbar") {
+                        Text(WorkDeviceCard.recordingTime(info.remainingRecordingTime))
+                    }
+                    if let ruhe = info.autoPowerOff, info.autoPowerOffEnabled {
+                        LabeledContent("Ruhezustand") { Text("nach \(ruhe.hours) Stunden") }
+                    }
                     LabeledContent("Firmware") { Text(info.firmwareVersion) }
                     LabeledContent("Seriennummer") { Text(info.serialNumber) }
                 }

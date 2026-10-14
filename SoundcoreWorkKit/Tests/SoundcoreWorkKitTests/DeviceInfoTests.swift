@@ -55,6 +55,48 @@ struct DeviceInfoTests {
         #expect(info.caseMACAddress == nil)
     }
 
+    /// Die Felder hinter der Ladecase-MAC. `autoPowerOffIndex` stand auf 1,
+    /// und die Hersteller-App zeigte zur selben Zeit „24 Stunden".
+    @Test("Zusatzfelder: Ruhezustand, Aufnahme-Bit, WLAN-Firmware")
+    func parsesExtendedFields() throws {
+        let info = try D3200DeviceInfo(response: Self.deviceInfoFrame)
+
+        #expect(info.autoPowerOffEnabled)
+        #expect(info.autoPowerOff == .twentyFourHours)
+        #expect(info.autoPowerOff?.hours == 24)
+        // Das Gerät nahm zum Zeitpunkt der Abfrage nicht auf.
+        #expect(!info.isRecording)
+        #expect(info.wifiFirmwareVersion == "03.02")
+        #expect(!info.pickupIndicatorLightOn)
+        #expect(!info.caseIndicatorLightOn)
+    }
+
+    /// Dieselbe Rechnung wie die Hersteller-App: Sie zeigt für dieses Gerät
+    /// „268h 14m" – das entspricht 8000 Byte je Sekunde, also der reinen
+    /// Audio-Nutzlast ohne den 166-Byte-Geräteframe.
+    @Test("Verbleibende Aufnahmezeit folgt der Anzeige der Hersteller-App")
+    func remainingRecordingTime() throws {
+        let info = try D3200DeviceInfo(response: Self.deviceInfoFrame)
+
+        #expect(D3200DeviceInfo.bytesPerSecond == 8000)
+        let stunden = info.remainingRecordingTime / 3600
+        #expect(stunden > 268 && stunden < 269)
+        // Gegenprobe mit dem Frame-Takt wären nur ~259 h.
+        #expect(Double(info.freeStorageBytes) / 8300 / 3600 < 260)
+    }
+
+    @Test("Ältere Antworten ohne Zusatzfelder stürzen nicht ab")
+    func shortResponseWithoutExtendedFields() throws {
+        // Auf die Pflichtfelder gekürzt.
+        let kurz = Self.deviceInfoFrame.prefix(D3200DeviceInfo.minimumLength)
+        let info = try D3200DeviceInfo(response: Data(kurz))
+
+        #expect(info.firmwareVersion == "03.36")
+        #expect(info.autoPowerOff == nil)
+        #expect(!info.isRecording)
+        #expect(info.wifiFirmwareVersion.isEmpty)
+    }
+
     @Test("Akku-Stufen werden zu Prozent", arguments: [
         (UInt8(0), 10), (1, 20), (4, 50), (8, 90), (9, 100),
     ])
