@@ -106,6 +106,31 @@ enum D3200CTL {
                 await finish(client, transport, code: 0)
             }
 
+            if command == "openrec" {
+                // Beim Start schickt das Gerät 1a/06 mit der file_id. Wenn es
+                // das auch auf ABFRAGE beantwortet, kennt die App beim
+                // Dazuverbinden den exakten Beginn einer laufenden Aufnahme.
+                note("starte Aufnahme …")
+                try await client.sendRecordControl(.start)
+                try await Task.sleep(for: .seconds(6))
+
+                for nachricht in [D3200Message.recordingState, .recordControl] {
+                    note("frage \(nachricht) ab – Antwort?")
+                    try await client.sendQuery(nachricht)
+                    try await monitor(transport: transport, seconds: 4)
+                }
+
+                note("stoppe wieder …")
+                try await client.sendRecordControl(.stop)
+                try await Task.sleep(for: .seconds(4))
+                let liste = (try? await client.listRecordings()) ?? []
+                if let neueste = liste.max(by: { $0.fileID < $1.fileID }) {
+                    note(String(format: "tatsächlicher Beginn: %08x, Dauer %.1f s",
+                                neueste.fileID, neueste.duration))
+                }
+                await finish(client, transport, code: 0)
+            }
+
             if command == "monitor" {
                 note("lausche \(seconds) s auf unaufgeforderte Frames.")
                 note("Drücke JETZT am Work die Aufnahmetaste, sprich kurz, stoppe wieder.")

@@ -41,11 +41,22 @@ public struct D3200DeviceInfo: Sendable, Equatable {
     /// MAC des Ladecase – `nil`, wenn das Gerät nur Füllbytes liefert.
     public let caseMACAddress: String?
 
-    /// Ob das Gerät gerade aufnimmt – direkt aus der Geräte-Info.
+    /// Ob auf dem Gerät eine Aufnahme **offen** ist – direkt aus der Geräte-Info.
     ///
-    /// Verlässlicher als die Pushes: Wer sich mitten in eine laufende
-    /// Aufnahme verbindet, hat deren Start-Push nie gesehen.
+    /// Verlässlicher als die Pushes: Wer sich mitten in eine laufende Aufnahme
+    /// verbindet, hat deren Start-Push nie gesehen.
+    ///
+    /// Am Gerät gemessen (2026-10-14): Das Bit steht während der Aufnahme
+    /// **und während einer Pause** auf 1. Es heißt also „eine Aufnahme ist
+    /// offen", nicht „sie läuft gerade" – die beiden sind darüber nicht zu
+    /// unterscheiden.
     public let isRecording: Bool
+    /// Ob die Antwort überhaupt lang genug war, um `isRecording` zu enthalten.
+    ///
+    /// Ohne diese Unterscheidung wäre eine kurze Antwort nicht von „nimmt
+    /// nicht auf" zu trennen – und ein Abgleich würde eine laufende Aufnahme
+    /// aus der Anzeige werfen.
+    public let reportsRecordingState: Bool
     /// Ob der Ruhezustand eingeschaltet ist.
     public let autoPowerOffEnabled: Bool
     /// Zeit bis zum Ruhezustand.
@@ -117,6 +128,7 @@ public struct D3200DeviceInfo: Sendable, Equatable {
         pickupIndicatorLightOn = hasExtended && byte(47) != 0
         caseIndicatorLightOn = hasExtended && byte(48) != 0
         isRecording = hasExtended && byte(49) != 0
+        reportsRecordingState = hasExtended
         wifiFirmwareVersion = hasExtended ? ascii(50, 5) : ""
 
         let mac = Array(bytes[base + 38 ..< base + 44])

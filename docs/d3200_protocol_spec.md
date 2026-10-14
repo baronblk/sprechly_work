@@ -540,6 +540,44 @@ beendet ist**. Danach kommt die komplette Datei am Stück.
 - ein HCI-Mitschnitt der Hersteller-App, während sie den Pegel anzeigt. Das
   zeigt den tatsächlichen Befehl in einem Zug und ist der sichere Weg.
 
+## 7f. Laufende Aufnahme beim Verbinden erkennen – am Gerät verifiziert (2026-10-14)
+
+Wer sich mitten in eine laufende Aufnahme verbindet, hat deren Start-Ereignis
+nie gesehen. Gemessen wurde, was das Gerät dann noch preisgibt (`d3200ctl state`,
+`d3200ctl openrec`):
+
+| Zeitpunkt | `isRecording` (Info-Byte 49) | Dateiliste |
+|---|---|---|
+| vor dem Start | false | 3 Dateien, neueste `6acf8e0d` |
+| 5 s Aufnahme | **true** | unverändert – **die laufende Aufnahme fehlt** |
+| 10 s Aufnahme | **true** | unverändert |
+| **pausiert** | **true** | **4 Dateien**, neu `6acf9147`, Dauer 10,7 s |
+| fortgesetzt | true | unverändert |
+| nach dem Stop | false | 4 Dateien, `6acf9147`, Dauer 14,9 s |
+
+**Drei Konsequenzen:**
+
+1. `isRecording` heißt „eine Aufnahme ist **offen**", nicht „sie läuft gerade" –
+   das Bit steht auch während einer Pause. Laufend und pausiert sind darüber
+   nicht zu unterscheiden.
+2. Eine laufende Aufnahme steht **nicht** in der Dateiliste. Sie erscheint erst
+   beim Pausieren, dann mit ihrer bisherigen Netto-Dauer; die `file_id` ist wie
+   immer der Startzeitpunkt. Die Dauer wächst nicht laufend mit, sie wird beim
+   Anhalten fortgeschrieben.
+3. Der Startzeitpunkt ist **nicht erfragbar**. Er kommt genau einmal, im
+   `1a/06`-Ereignis beim Start (`09 ff 00 00 01 1a 06 12 00 | b8 91 cf 6a |
+   02 00 00 00 | bf`, Nutzlast = `file_id` little-endian), und ein zweites Mal
+   in der langen Stop-Antwort. Abfragen helfen nicht:
+   - `1a/06` als Query → leere Bestätigung, 10 B: `09 ff 00 00 01 1a 06 0a 00 33`
+   - `18/82` als Query → Echo des Abfragebytes, 12 B: `… 0c 00 90 00 3f`
+
+Für eine App heißt das: Eine vorgefundene Aufnahme lässt sich **anzeigen und
+beenden**, ihre bisherige Laufzeit aber nur als Untergrenze angeben – bis der
+Nutzer pausiert (dann steht sie in der Liste) oder stoppt (dann meldet das
+Gerät Dauer und `file_id`, womit auch der automatische Import greift).
+
+---
+
 ## 8. Sicherheits-Hinweis (ISB-relevant)
 Der Session-Key ist allein aus dem BLE-Handshake plus **geräteübergreifend gleichen**
 Konstanten (salt/info = 010203) ableitbar; das Gerät prüft den Auth-Token nicht und
