@@ -69,6 +69,7 @@ struct SpeechTranscriptionService: TranscriptionProviding {
     ) -> AsyncThrowingStream<TranscriptDraft, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var teardown: (@Sendable () async -> Void)?
                 do {
                     let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
                     let analyzer: SpeechAnalyzer
@@ -85,6 +86,8 @@ struct SpeechTranscriptionService: TranscriptionProviding {
                     // is the single point every transcript passes through, so
                     // view, persistence and export all receive the same text
                     // and the formatter runs exactly once per segment.
+                    teardown = { await analyzer.cancelAndFinishNow() }
+
                     let formatter = TranscriptSemanticFormatter(locale: locale)
 
                     let resultsTask = Task {
@@ -115,25 +118,85 @@ struct SpeechTranscriptionService: TranscriptionProviding {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+                // Ein abgebrochener Lauf muss den Analyzer trotzdem abbauen –
+                // sonst bleibt sein Recognizer belegt und der nächste Lauf
+                // scheitert an "Maximum number of recognizers reached".
+                await teardown?()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
 
+    /// Transkribiert nur den Anfang der Datei und baut danach ordentlich ab.
+    ///
+    /// Für die Spracherkennung, die dieselbe Datei in mehreren Sprachen probiert:
+    /// Jeder Lauf liest nur `seconds` Audio, wird regulär beendet und gibt
+    /// seinen Recognizer frei, bevor der nächste beginnt. Den laufenden Strom
+    /// aus `transcribe` stattdessen abzubrechen ließ den Analyzer am Leben, bis
+    /// er die ganze Datei durch hatte — bei mehreren Proben hintereinander
+    /// endete das in "Maximum number of recognizers reached".
+    func transcribePrefix(
+        fileAt url: URL,
+        locale: Locale,
+        seconds: TimeInterval
+    ) async throws -> String {
+        let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+
+        let collecting = Task {
+            var parts: [String] = []
+            for try await result in transcriber.results where result.isFinal {
+                let text = String(result.text.characters)
+                if !text.isEmpty { parts.append(text) }
+            }
+            return parts.joined(separator: " ")
+        }
+
+        do {
+            let file = try AVAudioFile(forReading: url)
+            let analysisFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+            let (inputStream, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream()
+            try await analyzer.start(inputSequence: inputStream)
+            try Self.feed(
+                file: file, to: inputContinuation, analysisFormat: analysisFormat, seconds: seconds
+            )
+            inputContinuation.finish()
+            try await analyzer.finalizeAndFinishThroughEndOfInput()
+            return try await collecting.value
+        } catch {
+            collecting.cancel()
+            await analyzer.cancelAndFinishNow()
+            throw error
+        }
+    }
+
     /// Streams the file's audio (converted to the analyzer's format) as timed input.
+    ///
+    /// - Parameter seconds: liest nur den Anfang der Datei. `nil` ist die ganze
+    ///   Datei. Ohne diese Grenze müsste die Spracherkennung einen laufenden
+    ///   Strom abwürgen, was den Analyzer am Leben ließe.
     private static func feed(
         file: AVAudioFile,
         to continuation: AsyncStream<AnalyzerInput>.Continuation,
-        analysisFormat: AVAudioFormat?
+        analysisFormat: AVAudioFormat?,
+        seconds: TimeInterval? = nil
     ) throws {
         let sourceFormat = file.processingFormat
         let target = analysisFormat ?? sourceFormat
         let converter = target != sourceFormat ? AVAudioConverter(from: sourceFormat, to: target) : nil
         let chunk: AVAudioFrameCount = 16384
+        let limit = frameLimit(
+            fileLength: file.length, sampleRate: sourceFormat.sampleRate, seconds: seconds
+        )
 
-        while file.framePosition < file.length {
-            guard let readBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: chunk) else { break }
-            try file.read(into: readBuffer)
+        while file.framePosition < limit {
+            // Ohne diese Prüfung liest ein abgebrochener Lauf die Datei zu Ende.
+            if Task.isCancelled { return }
+            let remaining = AVAudioFrameCount(limit - file.framePosition)
+            guard let readBuffer = AVAudioPCMBuffer(
+                pcmFormat: sourceFormat, frameCapacity: Swift.min(chunk, remaining)
+            ) else { break }
+            try file.read(into: readBuffer, frameCount: Swift.min(chunk, remaining))
             if readBuffer.frameLength == 0 { break }
 
             let buffer: AVAudioPCMBuffer
@@ -146,6 +209,17 @@ struct SpeechTranscriptionService: TranscriptionProviding {
             // contiguous buffer stream (explicit per-chunk times overlapped).
             continuation.yield(AnalyzerInput(buffer: buffer))
         }
+    }
+
+    /// Bis zu welchem Frame gelesen wird. `nil` ist die ganze Datei; sonst der
+    /// Anfang, aber nie über das Dateiende hinaus.
+    static func frameLimit(
+        fileLength: AVAudioFramePosition,
+        sampleRate: Double,
+        seconds: TimeInterval?
+    ) -> AVAudioFramePosition {
+        guard let seconds, seconds > 0, sampleRate > 0 else { return fileLength }
+        return Swift.min(fileLength, AVAudioFramePosition(seconds * sampleRate))
     }
 
     private static func convert(

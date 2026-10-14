@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import SprechlyWork
@@ -91,5 +92,49 @@ struct LanguageDetectionTests {
         )
         #expect(german.code == "de")
         #expect(german.confidence > 0.5)
+    }
+}
+
+/// Wie viel Audio eine Sprachprobe liest. Die Begrenzung ist der Grund, warum
+/// kein Analyzer offen bleibt (siehe `SpeechTranscriptionService`).
+@Suite("Sprachprobe: Lesegrenze")
+struct ProbeFrameLimitTests {
+    private let sampleRate = 48_000.0
+
+    @Test("Ohne Grenze wird die ganze Datei gelesen")
+    func noLimitReadsEverything() {
+        let length = AVAudioFramePosition(600 * sampleRate)  // 10 min
+        #expect(
+            SpeechTranscriptionService.frameLimit(
+                fileLength: length, sampleRate: sampleRate, seconds: nil
+            ) == length
+        )
+    }
+
+    @Test("Aus zehn Minuten werden 25 Sekunden")
+    func limitCutsALongFile() {
+        let length = AVAudioFramePosition(600 * sampleRate)
+        let limit = SpeechTranscriptionService.frameLimit(
+            fileLength: length, sampleRate: sampleRate, seconds: 25
+        )
+        #expect(limit == AVAudioFramePosition(25 * sampleRate))
+        #expect(Double(limit) / sampleRate == 25)
+    }
+
+    @Test("Eine kürzere Datei bleibt kürzer")
+    func limitNeverExceedsTheFile() {
+        let length = AVAudioFramePosition(5 * sampleRate)
+        #expect(
+            SpeechTranscriptionService.frameLimit(
+                fileLength: length, sampleRate: sampleRate, seconds: 25
+            ) == length
+        )
+    }
+
+    @Test("Unsinnige Werte lesen lieber alles als nichts")
+    func degenerateValuesFallBackToTheWholeFile() {
+        let length = AVAudioFramePosition(5 * sampleRate)
+        #expect(SpeechTranscriptionService.frameLimit(fileLength: length, sampleRate: sampleRate, seconds: 0) == length)
+        #expect(SpeechTranscriptionService.frameLimit(fileLength: length, sampleRate: 0, seconds: 25) == length)
     }
 }

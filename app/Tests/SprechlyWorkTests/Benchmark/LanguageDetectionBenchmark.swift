@@ -126,6 +126,43 @@ struct LanguageDetectionBenchmark {
             + "B-Treffer=\(confidenceHits)")
     }
 
+    /// Jede Probe muss ihren Recognizer wieder freigeben.
+    ///
+    /// Reproduziert den Fehler vom 2026-10-14: Die Erkennung brach den
+    /// `transcribe`-Strom vorzeitig ab, der Analyzer lief aber weiter, bis er
+    /// die ganze Datei durch hatte. Nach wenigen Proben scheiterte der nächste
+    /// Lauf an „Maximum number of recognizers reached". Dieser Test läuft
+    /// deutlich mehr Proben hintereinander, als die Erkennung je braucht.
+    @Test func repeatedProbesReleaseTheirRecognizer() async throws {
+        let locales = [Locale(identifier: "de-DE"), Locale(identifier: "en-US")]
+        for locale in locales {
+            guard await BenchmarkSpeech.isAvailable(for: locale) else {
+                print("PROBELEAK SKIPPED: \(locale.identifier) nicht verfügbar")
+                return
+            }
+        }
+        guard let url = BenchmarkSpeech.fixtureURL(for: "technical-01") else {
+            print("PROBELEAK SKIPPED: keine Fixture")
+            return
+        }
+
+        let service = SpeechTranscriptionService()
+        for round in 0 ..< 12 {
+            let locale = locales[round % locales.count]
+            let text = try await service.transcribePrefix(
+                fileAt: url, locale: locale, seconds: LanguageDetection.probeWindow
+            )
+            print("PROBELEAK \(round) \(locale.identifier) zeichen=\(text.count)")
+        }
+
+        // Und danach muss der reguläre Lauf noch möglich sein – das ist der
+        // Schritt, der in der App fehlschlug.
+        var drafts = 0
+        for try await _ in service.transcribe(fileAt: url, locale: locales[0]) { drafts += 1 }
+        print("PROBELEAK danach transcribe drafts=\(drafts)")
+        #expect(drafts > 0)
+    }
+
     /// Transkribiert `url` in `locale` und bewertet das Ergebnis.
     ///
     /// Der Zuführungsweg ist derselbe wie in `SpeechTranscriptionService`, nur

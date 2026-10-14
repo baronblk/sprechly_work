@@ -205,19 +205,22 @@ final class TranscriptionViewModel {
     }
 
     /// Transkribiert nur den Anfang der Aufnahme und gibt den Text zurück.
+    ///
+    /// Bewusst über `transcribePrefix` und nicht über einen abgebrochenen
+    /// `transcribe`-Strom: Der Lauf muss fertig abgebaut sein, bevor die
+    /// nächste Sprache probiert wird.
     private func probeText(locale: Locale) async -> String? {
-        var parts: [String] = []
         do {
-            for try await draft in service.transcribe(fileAt: audioURL, locale: locale) {
-                parts.append(draft.text)
-                if draft.endTime >= LanguageDetection.probeWindow { break }
-            }
+            let text = try await service.transcribePrefix(
+                fileAt: audioURL,
+                locale: locale,
+                seconds: LanguageDetection.probeWindow
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
         } catch {
             logger.error("Sprachprobe \(locale.identifier, privacy: .public) fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             return nil
         }
-        let text = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
     }
 
     /// Replaces all segments in one transaction; rolls back on failure so the
