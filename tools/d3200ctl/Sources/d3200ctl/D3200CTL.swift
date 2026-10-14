@@ -98,6 +98,97 @@ enum D3200CTL {
                 await finish(client, transport, code: 0)
             }
 
+            if command == "flags" {
+                // Jeder Audio-Frame trägt auf Offset 13 ein Flags-Byte.
+                // Bekannt sind 02 (erster), 00 (Mitte), 04 (letzter).
+                // Eine Klopfmarke müsste sich hier zeigen.
+                note("ECDH-Handshake ...")
+                try await client.performKeyExchange()
+                guard let ziel = pick(requestedID, from: recordings) else {
+                    note("keine passende Aufnahme")
+                    await finish(client, transport, code: 1)
+                }
+                note("analysiere \(String(format: "%08x", ziel.fileID)) "
+                    + "(\(String(format: "%.1f", ziel.duration)) s) ...")
+
+                let flaggen = FlagCollector()
+                let lauscher = Task {
+                    for await frame in transport.notifications() {
+                        guard RCSPFrame.Response(frame: frame)?.message == .audioChunk
+                                || RCSPFrame.Response(frame: frame)?.message == .audioChunkMark,
+                              frame.count > 13 else { continue }
+                        flaggen.add(seq: Int(frame[9]), flag: frame[13])
+                    }
+                }
+                _ = try? await client.download(fileID: ziel.fileID)
+                try await Task.sleep(for: .seconds(1))
+                lauscher.cancel()
+
+                note("Flags-Byte über alle Frames:")
+                for (flag, anzahl) in flaggen.verteilung() {
+                    note(String(format: "  0x%02x  ×%d", flag, anzahl))
+                }
+                let auffaellig = flaggen.ungewoehnliche()
+                note(auffaellig.isEmpty
+                     ? "keine ungewöhnlichen Flags (nur 00/02/04)"
+                     : "UNGEWÖHNLICH bei Frames: \(auffaellig.prefix(20).map { "#\($0.0)=0x\(String($0.1, radix: 16))" }.joined(separator: ", "))")
+                await finish(client, transport, code: 0)
+            }
+
+            if command == "klopf" {
+                note("ECDH-Handshake ...")
+                try await client.performKeyExchange()
+                try? await client.sendRecordControl(.stop)
+                try await Task.sleep(for: .seconds(2))
+
+                note("starte Aufnahme ...")
+                try await client.sendRecordControl(.start)
+                var fileID: UInt32?
+                for await event in await client.events() {
+                    if case .recordingState(let id, _) = event { fileID = id; break }
+                }
+                guard let fileID else { await finish(client, transport, code: 1) }
+                note("laufende Aufnahme: \(String(format: "%08x", fileID))")
+                note("")
+                note(">>> JETZT ZWEIMAL AUFS MIKROFON KLOPFEN <<<")
+                note(">>> gern mehrfach, mit Pausen dazwischen     <<<")
+                note("")
+
+                // Alles mitlesen, damit sich ein Ereignis dem Klopfen zuordnen lässt.
+                let start = ContinuousClock.now
+                let lauscher = Task {
+                    for await frame in transport.notifications() {
+                        guard let antwort = RCSPFrame.Response(frame: frame) else { continue }
+                        let t = ContinuousClock.now - start
+                        let sek = Double(t.components.seconds)
+                            + Double(t.components.attoseconds) / 1e18
+                        let name = antwort.message.map(String.init(describing:)) ?? "UNBEKANNT"
+                        note(String(format: "  [%6.2fs] grp=%02x typ=%02x (%@) len=%d  %@",
+                                    sek, antwort.group, antwort.type, name, frame.count,
+                                    frame.prefix(24).map { String(format: "%02x", $0) }.joined(separator: " ")))
+                    }
+                }
+                try await Task.sleep(for: .seconds(40))
+                lauscher.cancel()
+
+                note("stoppe die Aufnahme")
+                try await client.sendRecordControl(.stop)
+                try await Task.sleep(for: .seconds(4))
+
+                note("lade die Aufnahme herunter und zähle die Slice-Typen ...")
+                let vorher08 = transport.count(of: .audioChunk)
+                let vorher12 = transport.count(of: .audioChunkMark)
+                do {
+                    let download = try await client.download(fileID: fileID)
+                    note("\(download.opusPackets.count) Pakete geladen")
+                } catch {
+                    note("Download: \(error.localizedDescription)")
+                }
+                note("Slices beim Download: 0x08 = \(transport.count(of: .audioChunk) - vorher08), "
+                    + "0x12 = \(transport.count(of: .audioChunkMark) - vorher12)")
+                await finish(client, transport, code: 0)
+            }
+
             if command == "phase1" {
                 func slices() -> Int {
                     transport.count(of: .audioChunk) + transport.count(of: .audioChunkMark)
@@ -396,6 +487,13 @@ enum D3200CTL {
                     reporter.report(done: done, total: total)
                 }
                 note("\(download.opusPackets.count) Opus-Pakete entschlüsselt")
+                if download.markers.isEmpty {
+                    note("keine Klopfmarkierungen")
+                } else {
+                    note("\(download.markers.count) Klopfmarkierung(en) bei "
+                        + download.markers.map { String(format: "%.1f s", $0) }
+                            .joined(separator: ", "))
+                }
 
                 let ogg = try download.oggOpus()
                 let url = outputDirectory.appendingPathComponent(
@@ -520,6 +618,24 @@ enum D3200CTL {
         }
     }
 
+    /// Sammelt die Flags-Bytes der Audio-Frames.
+    final class FlagCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var alle: [(Int, UInt8)] = []
+        func add(seq: Int, flag: UInt8) { lock.withLock { alle.append((seq, flag)) } }
+        func verteilung() -> [(UInt8, Int)] {
+            lock.withLock {
+                Dictionary(grouping: alle, by: \.1)
+                    .map { ($0.key, $0.value.count) }
+                    .sorted { $0.0 < $1.0 }
+            }
+        }
+        func ungewoehnliche() -> [(Int, UInt8)] {
+            lock.withLock { alle.enumerated().filter { ![0x00, 0x02, 0x04].contains($0.element.1) }
+                .map { ($0.offset, $0.element.1) } }
+        }
+    }
+
     /// Zählt eingehende Audio-Chunks über Task-Grenzen hinweg.
     final class ChunkCounter: @unchecked Sendable {
         private let lock = NSLock()
@@ -543,6 +659,10 @@ enum D3200CTL {
       d3200ctl info                    fragt Geräte-Info, Akku und Ladezustand
                                        ab und dumpt die Antworten roh
       d3200ctl delete <file-id-hex>    löscht eine Aufnahme – UNWIDERRUFLICH
+      d3200ctl klopf                   nimmt auf, während du klopfst, und
+                                       prüft, ob das BLE-Frames erzeugt
+      d3200ctl flags [<file-id-hex>]   zählt das Flags-Byte aller Frames aus
+                                       (Bit 0x01 = Klopfmarkierung)
 
     Optionen
       --out <dir>   Zielordner für die .ogg-Datei (Standard: aktueller Ordner)
