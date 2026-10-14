@@ -8,6 +8,42 @@ Nichts. Automatisches Signing hat die App-IDs **und** den CloudKit-Container
 `iCloud.de.gcng.sprechly.work` selbst im Developer-Portal angelegt – es war kein
 manueller Schritt im Portal nötig. Team ist `KZFCCDV6A8` (in `app/project.yml`).
 
+## Wie lange die App läuft
+
+Die Signatur ist ein **Development-Profil eines bezahlten Developer-Accounts**,
+Laufzeit 365 Tage:
+
+| | |
+|---|---|
+| Profil | `iOS Team Provisioning Profile: de.gcng.sprechly.work` |
+| Erstellt | 2026-10-13 |
+| **Gültig bis** | **2027-10-13** |
+| Zertifikat | Apple Development, Team `KZFCCDV6A8` |
+
+Danach startet die App nicht mehr; ein erneuter Durchlauf von `scripts/deploy.sh`
+genügt, dann läuft die Uhr wieder ein Jahr. Zum Vergleich: eine kostenlose Apple
+ID bekäme **7 Tage** und maximal drei Apps.
+
+**Die Daten bleiben dabei erhalten**, solange Bundle-ID *und* Signatur-Identität
+gleich bleiben – neu installieren heißt überinstallieren, nicht vorher löschen.
+Wechselt das Team oder die Bundle-ID, behandelt iOS es als andere App und die
+Bibliothek ist weg.
+
+TestFlight wäre hier **kein** Fortschritt: Builds verfallen dort nach 90 Tagen.
+
+## In einem Befehl
+
+```bash
+cd app && ./scripts/deploy.sh
+```
+
+Erzeugt das Xcode-Projekt neu (nötig, weil die `.xcodeproj` gitignored ist und
+Dateien explizit listet), baut signiert, **prüft die Identität gegen die
+Store-App**, installiert und startet. Am Ende steht das Ablaufdatum der
+Signatur. Mit `./scripts/deploy.sh <UDID>` für ein bestimmtes Gerät.
+
+Die Einzelschritte darunter bleiben als Referenz, falls etwas klemmt.
+
 ## Bei jedem Durchlauf
 
 ```bash
