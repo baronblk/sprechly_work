@@ -411,7 +411,21 @@ Download-Anforderung braucht es hier **nicht**.
 > Genau daran wäre die Prüfung fast gescheitert: Der erste Versuch galt als
 > wirkungslos, weil die Liste unmittelbar danach noch 22 Einträge zeigte.
 
-## 7e. Live-Pegel: über BLE nicht erreichbar (geprüft 2026-10-14)
+## 7e. Live-Pegel: Befund zurückgezogen (2026-10-14)
+
+> **Diese Messung war nicht aussagekräftig.** Zwei Fehler, beide meine:
+> der Zähler sah nur Slices vom Typ `0x08`, während Realtime-Slices laut
+> Referenz auch als **`0x12`** kommen – und im selben Lauf lieferte auch die
+> *normale* Anforderung 0 Chunks, es gab also gar keine gültige
+> Vergleichsmessung. Vor allem aber war der Befehl falsch gebaut: Die
+> Nutzlast von `1A/07` ist `already u32 ‖ fileId u32 ‖ realtimeFlag u8`
+> (9 Byte, Frame 19 B). Unsere Anforderung hat nur 8 Nutzlastbytes und
+> **kein Flag-Byte** – sie ist damit per Definition „offline".
+>
+> Der Realtime-Pfad ist also **nicht widerlegt**, sondern ungetestet.
+> Die Tabelle unten dokumentiert nur, was die jeweiligen Varianten taten.
+
+### Ursprüngliche Messung (nicht aussagekräftig)
 
 Für einen Aufnahmepegel bräuchte die App das Audio **während** der Aufnahme.
 Über den BLE-Transferweg gibt es das nicht:
@@ -432,8 +446,9 @@ beendet ist**. Danach kommt die komplette Datei am Stück.
 > das – dort hatte vermutlich eine der Varianten die Aufnahme vorzeitig
 > beendet, woraufhin die aufgelaufenen Anforderungen bedient wurden.
 
-**Folgerung:** Ein Pegel ist über diesen Weg nicht zu bauen. Bleiben zwei
-Möglichkeiten, beide noch offen:
+**Folgerung (korrigiert):** Offen. Der Versuch mit korrekt gebautem
+19-Byte-Befehl und einem Zähler, der auch `0x12` sieht, steht noch aus.
+Daneben bleiben:
 - der WLAN-SoftAP-/WebSocket-Pfad (§1) – die Referenz nennt dort einen
   `realtimeFlag`, der womöglich gar nicht BLE betrifft;
 - ein HCI-Mitschnitt der Hersteller-App, während sie den Pegel anzeigt. Das
