@@ -192,6 +192,19 @@ final class WorkDeviceViewModel {
 
         case .paused:
             stopTicking()
+            if case .openRecording = liveActivity {
+                // Beim Pausieren erscheint die bis dahin unsichtbare Aufnahme
+                // in der Dateiliste (am Gerät gemessen). Sie ist genau der
+                // Eintrag, den es vorher nicht gab – und trägt die echte
+                // bisherige Dauer. Bleibt die Liste zurück, bleibt es bei der
+                // Untergrenze, statt eine falsche Zahl zu übernehmen.
+                let bekannt = Set(items.map(\.id))
+                await reloadList()
+                if let neu = items.first(where: { !bekannt.contains($0.id) }) {
+                    runningDuration = neu.recording.duration
+                    logger.info("Laufzeit der vorgefundenen Aufnahme nachgeholt: \(self.runningDuration) s")
+                }
+            }
             liveActivity = .paused(elapsed: runningDuration)
 
         case .stopped:
@@ -256,7 +269,10 @@ final class WorkDeviceViewModel {
     /// Umschalten gerade erst richtig gestellt hat.
     static func recordingStart(from previous: WorkLiveActivity, now: Date) -> Date? {
         switch previous {
-        case .recording: nil
+        // Läuft schon – der Startzeitpunkt darf nicht zurückgesetzt werden.
+        // Bei einer vorgefundenen Aufnahme kennen wir ihn gar nicht, dann
+        // bleibt der Zustand lieber ehrlich unbestimmt.
+        case .recording, .openRecording: nil
         case .paused(let elapsed): now.addingTimeInterval(-elapsed)
         case .idle, .finished: now
         }
@@ -288,8 +304,16 @@ final class WorkDeviceViewModel {
             while !Task.isCancelled {
                 // Die Anzeige zeigt Hundertstel – bei 500 ms wirkte sie hakelig.
                 try? await Task.sleep(for: .milliseconds(50))
-                guard let self, case .recording(let since) = liveActivity else { return }
-                runningDuration = Date.now.timeIntervalSince(since)
+                guard let self else { return }
+                switch liveActivity {
+                case .recording(let since):
+                    runningDuration = Date.now.timeIntervalSince(since)
+                case .openRecording(let detectedAt):
+                    // Untergrenze: so lange läuft sie mindestens noch.
+                    runningDuration = Date.now.timeIntervalSince(detectedAt)
+                default:
+                    return
+                }
             }
         }
     }
@@ -305,9 +329,39 @@ final class WorkDeviceViewModel {
     func refreshDeviceInfo() async {
         guard let client, !isTransferring else { return }
         do {
-            deviceInfo = try await client.fetchDeviceInfo()
+            let info = try await client.fetchDeviceInfo()
+            deviceInfo = info
+            reconcileLiveActivity(with: info)
         } catch {
             logger.error("Geräte-Info fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Gleicht die Anzeige mit dem ab, was das Gerät über sich sagt.
+    ///
+    /// Nötig, weil der Live-Zustand sonst allein aus Push-Ereignissen kommt:
+    /// Lief die Aufnahme schon, bevor die App verbunden war, ist deren
+    /// Start-Ereignis längst vorbei und die App hielte das Gerät für untätig.
+    ///
+    /// `isRecording` ist am Gerät gemessen auch während einer **Pause** true,
+    /// heißt also „eine Aufnahme ist offen". Deshalb wird daraus nie auf
+    /// „läuft gerade" geschlossen, sondern nur eine offene Aufnahme angezeigt.
+    func reconcileLiveActivity(with info: D3200DeviceInfo, now: Date = .now) {
+        // Eine zu kurze Antwort weiß nichts über den Aufnahmezustand – dann
+        // darf sie auch nichts zurücksetzen.
+        guard info.reportsRecordingState else { return }
+
+        if info.isRecording {
+            guard !liveActivity.isActive else { return }
+            liveActivity = .openRecording(detectedAt: now)
+            runningDuration = 0
+            startTicking()
+        } else if liveActivity.isActive {
+            // Das Gerät kennt keine offene Aufnahme mehr: ein verpasstes
+            // Stop-Ereignis darf die Anzeige nicht ewig laufen lassen.
+            stopTicking()
+            runningDuration = 0
+            liveActivity = .idle
         }
     }
 

@@ -70,7 +70,7 @@ struct WorkDeviceCard: View {
 
     @ViewBuilder private var statusIndicator: some View {
         switch work.liveActivity {
-        case .recording:
+        case .recording, .openRecording:
             Circle().fill(Theme.Colors.destructive).frame(width: 10, height: 10)
         case .paused:
             Image(systemName: "pause.circle.fill").foregroundStyle(Theme.Colors.accent)

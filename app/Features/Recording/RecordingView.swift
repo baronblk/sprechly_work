@@ -115,6 +115,13 @@ struct RecordingView: View {
                     .symbolEffect(.pulse, options: .repeating)
                     .accessibilityHidden(true)
             }
+            // „min." macht sichtbar, dass die Zeit bei einer vorgefundenen
+            // Aufnahme nur eine Untergrenze ist – der Beginn ist nicht erfragbar.
+            if !work.liveActivity.hasKnownStart {
+                Text("min.")
+                    .font(.title3)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
             Text(TimeFormatting.timecode(work.runningDuration))
                 .font(.system(size: 56, weight: .light, design: .rounded))
                 .monospacedDigit()
@@ -257,6 +264,7 @@ struct RecordingView: View {
         switch work.liveActivity {
         case .idle: "Die Aufnahme läuft auf dem Work. Hol sie danach über die Karte in die Bibliothek."
         case .recording: "Der Work nimmt auf. Pegel und Live-Transkript gibt es erst nach dem Import."
+        case .openRecording: "Der Work nahm schon auf, als die App sich verband. Wie lange, weiß nur das Gerät – die Zeit ist eine Untergrenze."
         case .paused: "Pausiert – die Aufnahme bleibt eine Datei."
         case .finished: "Fertig. Tippe die Karte an, um sie zu importieren."
         }
