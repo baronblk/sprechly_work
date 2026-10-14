@@ -334,13 +334,85 @@ final class WorkDeviceViewModel {
             let recordings = try await client.listRecordings()
             // Bestehende Import-Zustände behalten, damit die Liste nicht zurückfällt.
             let previous = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.importState) })
+            let library = libraryRecordings()
             items = recordings
                 .sorted { $0.recordedAt > $1.recordedAt }
-                .map { WorkRecordingItem(recording: $0, importState: previous[$0.fileID] ?? .notImported) }
+                .map { recording in
+                    let match = Self.libraryMatch(for: recording, in: library)
+                    // Importe von vor diesem Feld nachtragen, damit die
+                    // Zuordnung danach über die file_id läuft.
+                    if let match, match.workFileID == nil {
+                        match.workFileID = Int(recording.fileID)
+                        logger.info("workFileID nachgetragen: \(match.title, privacy: .public)")
+                    }
+                    return WorkRecordingItem(
+                        recording: recording,
+                        importState: Self.importState(
+                            previous: previous[recording.fileID],
+                            libraryMatch: match?.id
+                        )
+                    )
+                }
+            if let context = modelContainer?.mainContext, context.hasChanges {
+                try? context.save()
+            }
         } catch {
             logger.error("Liste laden fehlgeschlagen: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Zuordnung Bibliothek ↔ Gerät
+
+    /// Wie weit Aufnahmezeitpunkt und Dauer auseinanderliegen dürfen, damit ein
+    /// Import ohne gespeicherte `file_id` noch als dieselbe Aufnahme gilt.
+    static let matchTimeTolerance: TimeInterval = 1
+    static let matchDurationTolerance: TimeInterval = 2
+
+    /// Findet den Bibliothekseintrag zu einer Aufnahme auf dem Gerät.
+    ///
+    /// Zuerst über die beim Import gespeicherte `workFileID`. Importe aus der
+    /// Zeit davor haben sie nicht – die erkennt der Aufnahmezeitpunkt, den der
+    /// Import als `createdAt` übernimmt, zusammen mit der Dauer. Aufnahmen im
+    /// Papierkorb zählen nicht, damit man sie erneut holen kann.
+    static func libraryMatch(
+        for recording: D3200Recording,
+        in library: [Recording]
+    ) -> Recording? {
+        let fileID = Int(recording.fileID)
+        if let exact = library.first(where: { !$0.isTrashed && $0.workFileID == fileID }) {
+            return exact
+        }
+        return library.first { candidate in
+            !candidate.isTrashed
+                && candidate.workFileID == nil
+                && abs(candidate.createdAt.timeIntervalSince(recording.recordedAt)) <= matchTimeTolerance
+                && abs(candidate.duration - recording.duration) <= matchDurationTolerance
+        }
+    }
+
+    /// Listenzustand einer Geräte-Aufnahme: ein laufender oder gescheiterter
+    /// Import dieser Sitzung hat Vorrang, danach entscheidet die Bibliothek.
+    static func importState(
+        previous: WorkRecordingItem.ImportState?,
+        libraryMatch: UUID?
+    ) -> WorkRecordingItem.ImportState {
+        if let previous {
+            switch previous {
+            case .downloading, .converting, .failed: return previous
+            case .notImported, .imported: break
+            }
+        }
+        if let libraryMatch { return .imported(recordingID: libraryMatch) }
+        return .notImported
+    }
+
+    /// Bibliothek für die Zuordnung. Ohne Container bleibt die Liste bei
+    /// „nicht importiert" – dann fehlt nur die Markierung, sonst nichts.
+    private func libraryRecordings() -> [Recording] {
+        guard let modelContainer else { return [] }
+        let descriptor = FetchDescriptor<Recording>(predicate: #Predicate { !$0.isTrashed })
+        return (try? modelContainer.mainContext.fetch(descriptor)) ?? []
     }
 
     // MARK: - Löschen
@@ -507,7 +579,8 @@ final class WorkDeviceViewModel {
                 createdAt: item.recording.recordedAt,
                 // Klopfmarkierungen des Geräts, nur bis zur tatsächlichen
                 // Dauer – die Umwandlung kann minimal kürzen.
-                markers: download.markers.filter { $0 <= converted.duration }
+                markers: download.markers.filter { $0 <= converted.duration },
+                workFileID: Int(fileID)
             )
             context.insert(recording)
             try context.save()

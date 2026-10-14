@@ -25,6 +25,11 @@ final class Recording {
     /// Persisted transcript translation and its target language code (e.g. "en").
     var translation: String?
     var translationLanguageCode: String?
+    /// `file_id` of the Soundcore Work recording this was imported from, so
+    /// the device list can mark it as imported across launches. `nil` for
+    /// every recording made in the app. Stored as `Int` because CloudKit has
+    /// no unsigned integers.
+    var workFileID: Int?
     /// Tap markers from a Soundcore Work import: seconds from the start of
     /// the recording, where the user tapped the device. Empty for every
     /// recording made in the app.
@@ -50,7 +55,8 @@ final class Recording {
         deletedAt: Date? = nil,
         aiTitle: String? = nil,
         summary: String? = nil,
-        markers: [TimeInterval] = []
+        markers: [TimeInterval] = [],
+        workFileID: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -62,6 +68,7 @@ final class Recording {
         self.aiTitle = aiTitle
         self.summary = summary
         self.markers = markers
+        self.workFileID = workFileID
     }
 
     /// Moves the recording into the trash.
