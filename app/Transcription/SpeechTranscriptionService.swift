@@ -191,7 +191,10 @@ struct SpeechTranscriptionService: TranscriptionProviding {
 
         while file.framePosition < limit {
             // Ohne diese Prüfung liest ein abgebrochener Lauf die Datei zu Ende.
-            if Task.isCancelled { return }
+            // Wichtig ist das `throw`: Stiege die Schleife hier nur aus, käme
+            // ein abgebrochener Lauf als kurzes, aber fehlerfreies Transkript
+            // zurück – und würde als vollständig gespeichert.
+            try Task.checkCancellation()
             let remaining = AVAudioFrameCount(limit - file.framePosition)
             guard let readBuffer = AVAudioPCMBuffer(
                 pcmFormat: sourceFormat, frameCapacity: Swift.min(chunk, remaining)
