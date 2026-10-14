@@ -317,18 +317,23 @@ struct WorkDeviceTests {
         #expect(viewModel.transcribingTitle == nil)
     }
 
-    @Test("Die drei Work-Schalter sind alle voreingestellt aus")
+    @Test("Die Work-Schalter sind voreingestellt aus")
     func workSwitchesAreOptIn() {
         let defaults = UserDefaults(suiteName: "WorkSwitches-\(UUID().uuidString)")!
         #expect(!defaults.bool(forKey: WorkSettings.autoConnectKey))
-        #expect(!defaults.bool(forKey: WorkSettings.keepAwakeKey))
         #expect(!defaults.bool(forKey: WorkSettings.autoTranscribeKey))
         // Verschiedene Schlüssel, damit kein Schalter einen anderen mitzieht.
-        #expect(Set([
-            WorkSettings.autoConnectKey,
-            WorkSettings.keepAwakeKey,
-            WorkSettings.autoTranscribeKey,
-        ]).count == 3)
+        #expect(WorkSettings.autoConnectKey != WorkSettings.autoTranscribeKey)
+    }
+
+    /// „Bildschirm anlassen" gehört der App, nicht dem Work – und darf
+    /// deshalb nicht unter den Work-Schlüsseln liegen.
+    @Test("Bildschirm anlassen ist eine App-Einstellung")
+    func keepScreenAwakeIsAnAppSetting() {
+        let defaults = UserDefaults(suiteName: "Display-\(UUID().uuidString)")!
+        #expect(!defaults.bool(forKey: AppSettings.keepScreenAwakeKey))
+        #expect(!AppSettings.keepScreenAwakeKey.hasPrefix("work"))
+        #expect(AppSettings.keepScreenAwakeKey != WorkSettings.autoConnectKey)
     }
 
     /// Beim Stop über die App schickt das Gerät zwei Meldungen: erst eine

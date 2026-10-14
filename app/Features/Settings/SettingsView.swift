@@ -5,6 +5,7 @@ import SwiftUI
 /// (AI) layer transparent: what it unlocks, the current status, purchase and
 /// restore — plus recording preferences, models, legal and app info.
 struct SettingsView: View {
+    @AppStorage(AppSettings.keepScreenAwakeKey) private var keepScreenAwake = false
     @Environment(StoreManager.self) private var store
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
@@ -48,6 +49,7 @@ struct SettingsView: View {
                 }
             }
 
+            displaySection
             WorkSettingsSection()
             iCloudSection
 
@@ -126,6 +128,22 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    /// Gilt für die ganze App, nicht nur für ein Feature.
+    private var displaySection: some View {
+        Section {
+            Toggle(isOn: $keepScreenAwake) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bildschirm anlassen")
+                    Text("Verhindert den Bildschirm-Timeout, solange Sprechly geöffnet ist. Im Hintergrund gilt wieder die normale Einstellung.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+        } header: {
+            Text("Anzeige")
         }
     }
 

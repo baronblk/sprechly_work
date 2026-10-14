@@ -4,8 +4,6 @@ import SwiftUI
 enum WorkSettings {
     /// Ob sich die App beim Öffnen selbst verbindet.
     static let autoConnectKey = "workAutoConnect"
-    /// Ob der Bildschirm anbleibt, solange der Work verbunden ist.
-    static let keepAwakeKey = "workKeepAwake"
     /// Ob eine importierte Aufnahme gleich transkribiert wird.
     static let autoTranscribeKey = "workAutoTranscribe"
 }
@@ -16,7 +14,6 @@ enum WorkSettings {
 struct WorkSettingsSection: View {
     @Environment(WorkDeviceViewModel.self) private var work
     @AppStorage(WorkSettings.autoConnectKey) private var autoConnect = false
-    @AppStorage(WorkSettings.keepAwakeKey) private var keepAwake = false
     @AppStorage(WorkSettings.autoTranscribeKey) private var autoTranscribe = false
     @Environment(StoreManager.self) private var store
 
@@ -64,15 +61,6 @@ struct WorkSettingsSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Beim Öffnen verbinden")
                     Text("Versucht es still; findet die App den Work nicht, passiert nichts.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-            }
-
-            Toggle(isOn: $keepAwake) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Bildschirm anlassen")
-                    Text("Nur solange der Work verbunden ist. Im Standby bricht die Bluetooth-Verbindung ab.")
                         .font(.caption)
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }

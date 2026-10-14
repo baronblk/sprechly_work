@@ -26,16 +26,20 @@ struct RootView: View {
     @State private var measuredTabBarHeight: CGFloat = 0
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage(WorkSettings.autoConnectKey) private var workAutoConnect = false
-    @AppStorage(WorkSettings.keepAwakeKey) private var workKeepAwake = false
+    @AppStorage(AppSettings.keepScreenAwakeKey) private var keepScreenAwake = false
     @Environment(WorkDeviceViewModel.self) private var work
     #if DEBUG
     /// Presents the paywall at launch for the IAP review screenshot.
     @State private var showLaunchPaywall = ProcessInfo.processInfo.arguments.contains("SHOW_PAYWALL")
     #endif
 
-    /// Hält den Bildschirm an, solange es etwas zu sehen gibt.
+    /// Hält den Bildschirm wach, solange Sprechly im Vordergrund ist.
+    ///
+    /// An die aktive App gekoppelt, nicht an einen Schalter allein: Sobald die
+    /// App in den Hintergrund geht oder geschlossen wird, gilt wieder der
+    /// normale Timeout.
     private func applyIdleTimer() {
-        UIApplication.shared.isIdleTimerDisabled = workKeepAwake && work.isReady
+        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && scenePhase == .active
     }
 
     @ViewBuilder private var content: some View {
@@ -54,6 +58,7 @@ struct RootView: View {
             NavigationStack { SettingsView() }
         }
         .task {
+            applyIdleTimer()
             if workAutoConnect { await work.connectAutomatically() }
             purgeExpiredTrash()
             TranscriptMarkupRepair.run(in: modelContext)
@@ -64,12 +69,10 @@ struct RootView: View {
                 CloudAudioReconciler.reconcile(container: modelContext.container)
             }
         }
-        // Im Standby bricht die Bluetooth-Verbindung ab, deshalb nur solange
-        // der Work wirklich verbunden ist – und nie darüber hinaus.
-        .onChange(of: work.isReady) { _, _ in applyIdleTimer() }
-        .onChange(of: workKeepAwake) { _, _ in applyIdleTimer() }
+        .onChange(of: keepScreenAwake) { _, _ in applyIdleTimer() }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: scenePhase) { _, phase in
+            applyIdleTimer()
             if phase == .active {
                 if workAutoConnect {
                     Task { await work.connectAutomatically() }
