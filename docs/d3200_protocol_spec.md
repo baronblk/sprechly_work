@@ -248,6 +248,40 @@ Der rohe Audio-Stream besteht aus 164-Byte-Frames. Pro Frame:
 > `fixtures/raw_4b4a7b69.bin`. Das erste Frame trägt die Flags `00 02`, das
 > letzte `00 04`; `frame[9]` zählt die Frames ab 0.
 
+### 6.4a Frame-Flags und Klopfmarkierung – am Gerät verifiziert (2026-10-14)
+Die beiden Byte vor der Nutzlast sind **nicht verschlüsselt**. `frame[0]` war in
+allen untersuchten Aufnahmen `00`; `frame[1]` ist ein Bitfeld:
+
+| Bit | Wert | Bedeutung |
+|-----|------|-----------|
+| 0 | `0x01` | **Klopfmarkierung** – an dieser Stelle wurde auf das Gerät geklopft |
+| 1 | `0x02` | erster Frame der Aufnahme |
+| 2 | `0x04` | letzter Frame der Aufnahme |
+
+Zeitpunkt einer Marke = `frameIndex × 0,02 s` (20 ms pro Opus-Paket).
+
+**Messung.** 45-s-Aufnahme (`6acf7dee`), während der ersten Hälfte mehrfach auf
+das Gerät geklopft, danach Download und Auszählung von `frame[1]` über alle
+2250 Frames:
+
+```
+0x00 ×2238   0x01 ×8   0x02 ×1   0x04 ×1
+Marken auf Frame #527 #641 #777 #915 #1020 #1138 #1262 #1376
+            ≙ 10,5 / 12,8 / 15,5 / 18,3 / 20,4 / 22,8 / 25,2 / 27,5 s
+```
+
+Acht Marken, Abstände 2,1–2,8 s – deckungsgleich mit dem Klopfen. Zur Gegenprobe
+trägt die Referenz-Fixture `raw_4b4a7b69.bin` (ohne Klopfen) nur `02 … 00 … 04`.
+
+**Wichtig – zwei naheliegende Annahmen sind falsch:**
+- Das Klopfen erzeugt **kein** unaufgefordertes BLE-Event. Ein `monitor`-Lauf
+  während des Klopfens sah keinen einzigen Frame.
+- Es erzeugt **keinen** Slice vom Typ `1a/12` (`audioChunkMark`). Derselbe
+  Download lieferte 2248 Slices, alle `1a/08`, kein einziger `0x12`.
+
+Die Marke ist also ausschließlich im gespeicherten Stream vorhanden und wird
+erst beim Download sichtbar. Im Community-Repo ist das nicht dokumentiert.
+
 ### 6.5 AES-CTR auf Apple-Plattformen
 CryptoKit bietet **kein** AES-CTR. Verwende `CommonCrypto`:
 `CCCryptorCreateWithMode(kCCEncrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding,

@@ -6,6 +6,18 @@ public struct D3200Download: Sendable {
     public let header: D3200FileHeader
     /// Entschlüsselte Opus-Pakete à 160 Byte, in Reihenfolge.
     public let opusPackets: [Data]
+    /// Zeitpunkte der Klopfmarkierungen, in Sekunden ab Aufnahmebeginn.
+    public let markers: [TimeInterval]
+
+    public init(
+        header: D3200FileHeader,
+        opusPackets: [Data],
+        markers: [TimeInterval] = []
+    ) {
+        self.header = header
+        self.opusPackets = opusPackets
+        self.markers = markers
+    }
 
     /// Verpackt die Pakete in einen Ogg/Opus-Container.
     public func oggOpus(writer: OggOpusWriter = OggOpusWriter()) throws -> Data {
@@ -261,16 +273,23 @@ public actor D3200Client {
 
             var raw = Data()
             var chunkIndex = 0
+            var markedChunks = 0
             collect: while true {
-                let response = try await nextMessage(expecting: [.audioChunk, .transferComplete])
+                // `audioChunkMark` muss mitgelesen werden: Seit unerwartete
+                // Nachrichten übersprungen werden, gingen solche Slices sonst
+                // lautlos verloren und das Audio bekäme Lücken.
+                let response = try await nextMessage(
+                    expecting: [.audioChunk, .audioChunkMark, .transferComplete]
+                )
                 switch response.message {
-                case .audioChunk:
+                case .audioChunk, .audioChunkMark:
                     // Der Zähler im Frame sichert die Reihenfolge ab; er ist ein
                     // Byte breit und läuft nach 256 Frames über.
                     let expected = UInt8(truncatingIfNeeded: chunkIndex)
                     if let sequence = Self.chunkSequence(of: response.frame), sequence != expected {
                         throw ClientError.chunkOutOfOrder(expected: expected, got: sequence)
                     }
+                    if response.message == .audioChunkMark { markedChunks += 1 }
                     raw.append(Self.audioPayload(from: response.frame))
                     chunkIndex += 1
                     progress?(raw.count, header.expectedRawBytes)
@@ -299,8 +318,17 @@ public actor D3200Client {
                 fileKey: fileKey,
                 nonce: header.nonce
             )
+            if markedChunks > 0 {
+                logger.info("\(markedChunks) Slice(s) kamen als Typ 0x12 (Marke)")
+            }
+            // Die Klopfmarkierungen stehen im Klartext-Flags-Byte der Rohframes,
+            // nicht im verschlüsselten Audio – deshalb aus `raw`, nicht aus `packets`.
+            let markers = D3200FrameFlags.markers(rawStream: raw)
+            if !markers.isEmpty {
+                logger.info("\(markers.count) Klopfmarkierung(en) im Stream")
+            }
             logger.info("\(packets.count) Opus-Pakete entschlüsselt")
-            return D3200Download(header: header, opusPackets: packets)
+            return D3200Download(header: header, opusPackets: packets, markers: markers)
         }
     }
 
