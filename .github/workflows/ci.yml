@@ -28,6 +28,13 @@ concurrency:
 permissions:
   contents: read
 
+# The workflow has to live at the repository root to run at all, but every
+# command belongs in `app/` — that is where project.yml and the scheme are.
+# `uses:` steps are unaffected; their paths are absolute via `github.workspace`.
+defaults:
+  run:
+    working-directory: app
+
 jobs:
   test:
     runs-on: [self-hosted, macOS]
